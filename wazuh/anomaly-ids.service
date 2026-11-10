@@ -1,0 +1,22 @@
+# Dat tai /etc/systemd/system/anomaly-ids.service tren Suricata_IDS (dung nhu ban dang chay tu 03/11).
+# Doi User neu tai khoan chay khac "user" (tai khoan nay phai doc duoc eve.json va ghi duoc /var/log/suricata-anomaly).
+# Nap: sudo systemctl daemon-reload && sudo systemctl enable --now anomaly-ids
+# Sau khi chep anomaly.py hoac joblib moi vao /opt/ml: sudo systemctl restart anomaly-ids
+[Unit]
+Description=Anomaly IDS (Isolation Forest) - behavior + web engines
+After=network-online.target suricata.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=user
+WorkingDirectory=/opt/ml
+Environment=ANOMALY_LOG=/var/log/suricata-anomaly/anomaly_alerts.jsonl
+ExecStart=/usr/bin/python3 /opt/ml/anomaly.py --live /var/log/suricata/eve.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

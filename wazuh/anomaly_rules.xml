@@ -1,0 +1,76 @@
+<!--
+  DAT TREN: Wazuh manager. Tha file nay vao /var/ossec/etc/rules/.
+  Dai ID 100300-100312 rieng de KHONG trung nhanh signature.
+  Telegram:
+    - custom-telegram        loc <group>suricata</group>       -> nhanh signature
+    - custom-telegram-anomaly loc <group>anomaly_notify</group> -> chi canh bao DANG BAO
+      (100305 diem cao lan dau, 100311 tai dien, 100312 CRITICAL). Base 100301/302/303/304
+      KHONG mang anomaly_notify nen fire ngam de DEM ma khong lam ngap Telegram.
+  Thang leo muc: 10 (phat hien) -> 12 (diem cao) -> 13 (tai dien) -> 15 (CRITICAL -> Active Response).
+  AR = suricata-drop (luat drop inline Suricata) tren agent 003. Rule BAO co ignore=300s.
+-->
+<group name="anomaly,ids,">
+
+  <rule id="100300" level="3">
+    <field name="module" type="pcre2">^anomaly_(if|web|web_body)$</field>
+    <description>Anomaly-IF: canh bao bat thuong tu Isolation Forest</description>
+  </rule>
+
+  <rule id="100301" level="10">
+    <if_sid>100300</if_sid>
+    <field name="module" type="pcre2">^anomaly_if$</field>
+    <description>Anomaly - Hanh vi mang bat thuong: $(srcip) -> $(dstip), vi $(why)</description>
+    <group>anomaly_event,anomaly_behavior,</group>
+  </rule>
+
+  <rule id="100302" level="10">
+    <if_sid>100300</if_sid>
+    <field name="module" type="pcre2">^anomaly_web$</field>
+    <description>Anomaly - Gia tri tham so bat thuong tren $(host) (query hoac truong ngan POST): nghi injection, vi $(why)</description>
+    <group>anomaly_event,anomaly_web,</group>
+  </rule>
+
+  <rule id="100303" level="10">
+    <if_sid>100300</if_sid>
+    <field name="module" type="pcre2">^anomaly_web_body$</field>
+    <description>Anomaly - Van ban tu do POST bat thuong tren $(host): nghi XSS luu tru hoac injection, vi $(why)</description>
+    <group>anomaly_event,anomaly_web,</group>
+  </rule>
+
+  <rule id="100304" level="12">
+    <if_sid>100301,100302,100303</if_sid>
+    <field name="severity">high</field>
+    <description>Anomaly - Bat thuong diem cao ($(module)): $(srcip), vi $(why)</description>
+    <group>anomaly_event,anomaly_high,</group>
+  </rule>
+
+  <!-- BAO diem cao lan dau, throttle 300s, KHONG dem -->
+  <rule id="100305" level="12" ignore="300">
+    <if_sid>100304</if_sid>
+    <description>Anomaly - Phat hien diem cao tu $(srcip) (bao lan dau): $(why)</description>
+    <group>anomaly_notify,</group>
+  </rule>
+
+  <!-- 100306 | BAO bat thuong WEB ra Telegram, doc lap voi nhanh hanh vi. -->
+  <rule id="100306" level="10" ignore="300">
+    <if_sid>100302,100303</if_sid>
+    <description>Anomaly - Bat thuong WEB tu $(srcip) tren $(host): $(why)</description>
+    <group>anomaly_notify,</group>
+  </rule>
+
+
+  <rule id="100311" level="13" frequency="5" timeframe="300" ignore="300">
+    <if_matched_group>anomaly_event</if_matched_group>
+    <same_source_ip />
+    <description>Anomaly - Nguon $(srcip) tai dien >=5 canh bao bat thuong trong 5 phut</description>
+    <group>anomaly_escalation,anomaly_notify,</group>
+  </rule>
+
+  <rule id="100312" level="15" frequency="10" timeframe="600">
+    <if_matched_group>anomaly_event</if_matched_group>
+    <same_source_ip />
+    <description>Anomaly CRITICAL - Nguon $(srcip) tai dien dai dang; kich hoat tu dong co lap/chan</description>
+    <group>anomaly_critical,anomaly_notify,</group>
+  </rule>
+
+</group>

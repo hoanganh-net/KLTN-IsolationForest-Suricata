@@ -1,0 +1,310 @@
+{
+ "attack_version": "20.0",
+ "attack_modified": "2026-10-13T17:53:10.145Z",
+ "source": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-20.0.json",
+ "generated": "2026-11-03",
+ "techniques": {
+  "T1071": {
+   "name": "Application Layer Protocol",
+   "tactics": [
+    {
+     "id": "TA0011",
+     "name": "Command and Control"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1071/",
+   "mitigations": [
+    {
+     "id": "M1031",
+     "name": "Network Intrusion Prevention",
+     "guidance": "Network intrusion detection and prevention systems that use network signatures to identify traffic for specific adversary malware can be used to mitigate activity at the network level."
+    },
+    {
+     "id": "M1037",
+     "name": "Filter Network Traffic",
+     "guidance": "Use network appliances to filter ingress or egress traffic and perform protocol-based filtering. Configure software on endpoints to filter network traffic."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0444",
+     "name": "Detection of Command and Control Over Application Layer Protocols"
+    }
+   ]
+  },
+  "T1048": {
+   "name": "Exfiltration Over Alternative Protocol",
+   "tactics": [
+    {
+     "id": "TA0010",
+     "name": "Exfiltration"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1048/",
+   "mitigations": [
+    {
+     "id": "M1018",
+     "name": "User Account Management",
+     "guidance": "Configure user permissions groups and roles for access to cloud storage. Implement strict Identity and Access Management (IAM) controls to prevent access to storage solutions except for the applications, users, and services that require access. Ensure that temporary access tokens are issued rather than permanent credentials, especially when access is being granted to entities outside of the internal security boundary."
+    },
+    {
+     "id": "M1022",
+     "name": "Restrict File and Directory Permissions",
+     "guidance": "Use access control lists on cloud storage systems and objects."
+    },
+    {
+     "id": "M1030",
+     "name": "Network Segmentation",
+     "guidance": "Follow best practices for network firewall configurations to allow only necessary ports and traffic to enter and exit the network."
+    },
+    {
+     "id": "M1031",
+     "name": "Network Intrusion Prevention",
+     "guidance": "Network intrusion detection and prevention systems that use network signatures to identify traffic for specific adversary command and control infrastructure and malware can be used to mitigate activity at the network level."
+    },
+    {
+     "id": "M1037",
+     "name": "Filter Network Traffic",
+     "guidance": "Enforce proxies and use dedicated servers for services such as DNS and only allow those systems to communicate over respective ports/protocols, instead of all systems within a network. Cloud service providers support IP-based restrictions when accessing cloud resources. Consider using IP allowlisting along with user account management to ensure that data access is restricted not only to valid users but only from expected IP ranges to mitigate the use of stolen credentials to access data."
+    },
+    {
+     "id": "M1057",
+     "name": "Data Loss Prevention",
+     "guidance": "Data loss prevention can detect and block sensitive data being uploaded via web browsers."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0131",
+     "name": "Behavioral Detection Strategy for Exfiltration Over Alternative Protocol"
+    }
+   ]
+  },
+  "T1105": {
+   "name": "Ingress Tool Transfer",
+   "tactics": [
+    {
+     "id": "TA0011",
+     "name": "Command and Control"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1105/",
+   "mitigations": [
+    {
+     "id": "M1031",
+     "name": "Network Intrusion Prevention",
+     "guidance": "Network intrusion detection and prevention systems that use network signatures to identify traffic for specific adversary malware or unusual data transfer over known protocols like FTP can be used to mitigate activity at the network level. Signatures are often for unique indicators within protocols and may be based on the specific obfuscation technique used by a particular adversary or tool, and will likely be different across various malware families and versions. Adversaries will likely change tool C2 signatures over time or construct protocols in such a way as to avoid detection by common defensive tools."
+    },
+    {
+     "id": "M1037",
+     "name": "Filter Network Traffic",
+     "guidance": "Use network filtering to block outbound traffic from compromised systems to unapproved external destinations. Restricting access to known, trusted IP addresses and protocols can prevent attackers from downloading malicious tools or payloads onto compromised servers after gaining initial access."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0060",
+     "name": "Detect Ingress Tool Transfers via Behavioral Chain"
+    }
+   ]
+  },
+  "T1046": {
+   "name": "Network Service Discovery",
+   "tactics": [
+    {
+     "id": "TA0007",
+     "name": "Discovery"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1046/",
+   "mitigations": [
+    {
+     "id": "M1030",
+     "name": "Network Segmentation",
+     "guidance": "Ensure proper network segmentation is followed to protect critical servers and devices."
+    },
+    {
+     "id": "M1031",
+     "name": "Network Intrusion Prevention",
+     "guidance": "Use network intrusion detection/prevention systems to detect and prevent remote service scans."
+    },
+    {
+     "id": "M1042",
+     "name": "Disable or Remove Feature or Program",
+     "guidance": "Ensure that unnecessary ports and services are closed to prevent risk of discovery and potential exploitation."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0376",
+     "name": "Behavioral Detection Strategy for Network Service Discovery Across Platforms"
+    }
+   ]
+  },
+  "T1110": {
+   "name": "Brute Force",
+   "tactics": [
+    {
+     "id": "TA0006",
+     "name": "Credential Access"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1110/",
+   "mitigations": [
+    {
+     "id": "M1018",
+     "name": "User Account Management",
+     "guidance": "Proactively reset accounts that are known to be part of breached credentials either immediately, or after detecting bruteforce attempts."
+    },
+    {
+     "id": "M1027",
+     "name": "Password Policies",
+     "guidance": "Refer to NIST guidelines when creating password policies."
+    },
+    {
+     "id": "M1032",
+     "name": "Multi-factor Authentication",
+     "guidance": "Use multi-factor authentication. Where possible, also enable multi-factor authentication on externally facing services."
+    },
+    {
+     "id": "M1036",
+     "name": "Account Use Policies",
+     "guidance": "Set account lockout policies after a certain number of failed login attempts to prevent passwords from being guessed. Too strict a policy may create a denial of service condition and render environments un-usable, with all accounts used in the brute force being locked-out. Use conditional access policies to block logins from non-compliant devices or from outside defined organization IP ranges. Consider blocking risky authentication requests, such as those originating from anonymizing services/proxies."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0463",
+     "name": "Brute Force Authentication Failures with Multi-Platform Log Correlation"
+    }
+   ]
+  },
+  "T1498": {
+   "name": "Network Denial of Service",
+   "tactics": [
+    {
+     "id": "TA0040",
+     "name": "Impact"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1498/",
+   "mitigations": [
+    {
+     "id": "M1037",
+     "name": "Filter Network Traffic",
+     "guidance": "When flood volumes exceed the capacity of the network connection being targeted, it is typically necessary to intercept the incoming traffic upstream to filter out the attack traffic from the legitimate traffic. Such defenses can be provided by the hosting Internet Service Provider (ISP) or by a 3rd party such as a Content Delivery Network (CDN) or providers specializing in DoS mitigations. Depending on flood volume, on-premises filtering may be possible by blocking source addresses sourcing the attack, blocking ports that are being targeted, or blocking protocols being used for transport. As immediate response may require rapid engagement of 3rd parties, analyze the risk associated to critical resources being affected by Network DoS attacks and create a disaster recovery plan/business continuity plan to respond to incidents."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0518",
+     "name": "Behavioral Detection of T1498 – Network Denial of Service Across Platforms"
+    }
+   ]
+  },
+  "T1190": {
+   "name": "Exploit Public-Facing Application",
+   "tactics": [
+    {
+     "id": "TA0001",
+     "name": "Initial Access"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1190/",
+   "mitigations": [
+    {
+     "id": "M1016",
+     "name": "Vulnerability Scanning",
+     "guidance": "Regularly scan externally facing systems for vulnerabilities and establish procedures to rapidly patch systems when critical vulnerabilities are discovered through scanning and through public disclosure."
+    },
+    {
+     "id": "M1026",
+     "name": "Privileged Account Management",
+     "guidance": "Use least privilege for service accounts will limit what permissions the exploited process gets on the rest of the system."
+    },
+    {
+     "id": "M1030",
+     "name": "Network Segmentation",
+     "guidance": "Segment externally facing servers and services from the rest of the network with a DMZ or on separate hosting infrastructure."
+    },
+    {
+     "id": "M1035",
+     "name": "Limit Access to Resource Over Network",
+     "guidance": "Ensure that all publicly exposed services are actually intended to be so, and restrict access to any that should only be available internally."
+    },
+    {
+     "id": "M1037",
+     "name": "Filter Network Traffic",
+     "guidance": "Restrict outbound network traffic from public-facing servers to prevent unauthorized connections from initiating communications with attacker-controlled infrastructure. While this may not prevent the initial exploitation, it limits the attacker's ability to verify and control the compromised server post-exploit, reducing the overall impact of the attack."
+    },
+    {
+     "id": "M1048",
+     "name": "Application Isolation and Sandboxing",
+     "guidance": "Application isolation will limit what other processes and system features the exploited target can access."
+    },
+    {
+     "id": "M1050",
+     "name": "Exploit Protection",
+     "guidance": "Web Application Firewalls may be used to limit exposure of applications to prevent exploit traffic from reaching the application."
+    },
+    {
+     "id": "M1051",
+     "name": "Update Software",
+     "guidance": "Update software regularly by employing patch management for externally exposed applications."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0080",
+     "name": "Exploit Public-Facing Application – multi-signal correlation (request → error → post-exploit process/egress)"
+    }
+   ]
+  },
+  "T1595": {
+   "name": "Active Scanning",
+   "tactics": [
+    {
+     "id": "TA0043",
+     "name": "Reconnaissance"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1595/",
+   "mitigations": [
+    {
+     "id": "M1056",
+     "name": "Pre-compromise",
+     "guidance": "This technique cannot be easily mitigated with preventive controls since it is based on behaviors performed outside of the scope of enterprise defenses and controls. Efforts should focus on minimizing the amount and sensitivity of data available to external parties."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0830",
+     "name": "Detection of Active Scanning"
+    }
+   ]
+  },
+  "T1499": {
+   "name": "Endpoint Denial of Service",
+   "tactics": [
+    {
+     "id": "TA0040",
+     "name": "Impact"
+    }
+   ],
+   "url": "https://attack.mitre.org/techniques/T1499/",
+   "mitigations": [
+    {
+     "id": "M1037",
+     "name": "Filter Network Traffic",
+     "guidance": "Leverage services provided by Content Delivery Networks (CDN) or providers specializing in DoS mitigations to filter traffic upstream from services. Filter boundary traffic by blocking source addresses sourcing the attack, blocking ports that are being targeted, or blocking protocols being used for transport. To defend against SYN floods, enable SYN Cookies."
+    }
+   ],
+   "detection_strategies": [
+    {
+     "id": "DET0208",
+     "name": "Endpoint Resource Saturation and Crash Pattern Detection Across Platforms"
+    }
+   ]
+  }
+ }
+}

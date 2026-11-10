@@ -1,0 +1,9 @@
+# Dữ liệu và mô hình: chia sẻ riêng, không đưa lên kho
+data/*
+!data/README.md
+*.joblib
+*.csv.gz
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+chay_notebook.log

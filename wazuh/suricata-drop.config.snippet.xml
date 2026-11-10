@@ -1,0 +1,22 @@
+<!--
+  DAT TREN: Wazuh MANAGER, trong /var/ossec/etc/ossec.conf (ben trong <ossec_config>).
+  Thay the khoi <active-response> firewall-drop cho rule 100312 BANG hai khoi duoi (hoac them song song).
+  Ly do: IPS chay inline AF_PACKET -> goi khong qua iptables FORWARD, nen chan bang LUAT DROP cua
+  Suricata moi cat duoc luong. Script `suricata-drop` them luat drop + reload Suricata live.
+-->
+
+<!-- 1) Khai bao command dung script suricata-drop. timeout_allowed=yes de Wazuh goi "delete" khi het timeout. -->
+<command>
+  <name>suricata-drop</name>
+  <executable>suricata-drop</executable>
+  <timeout_allowed>yes</timeout_allowed>
+</command>
+
+<!-- 2) Active response: 100312 (CRITICAL) -> chay suricata-drop tren agent IPS (003), chan 15s roi tu go. -->
+<active-response>
+  <command>suricata-drop</command>
+  <location>defined-agent</location>
+  <agent_id>003</agent_id>
+  <rules_id>100312</rules_id>
+  <timeout>15</timeout>
+</active-response>

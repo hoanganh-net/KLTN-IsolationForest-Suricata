@@ -1,0 +1,16 @@
+<!--
+  ĐẶT TRÊN: host chạy Suricata + anomaly.py (nơi đã cài Wazuh agent).
+  CHÈN VÀO: /var/ossec/etc/ossec.conf, bên trong cặp thẻ ossec_config
+            (thêm khối localfile này cạnh các localfile sẵn có, không lồng vào khối khác).
+
+  Vai trò: Wazuh agent theo dõi (tail) file cảnh báo do anomaly.py sinh ra. Vì log_format=json,
+  agent tự tách mỗi dòng JSON thành các trường (module, src_ip, score, why, severity...) và gửi
+  về manager cho rule xử lý. Không cần decoder riêng cho JSON.
+
+  location phải là đường dẫn TUYỆT ĐỐI và trùng với ANOMALY_LOG mà anomaly.py ghi.
+  Các lệnh tạo thư mục, chạy anomaly.py và khởi động lại agent: xem README_wazuh.md.
+-->
+<localfile>
+  <log_format>json</log_format>
+  <location>/var/log/suricata-anomaly/anomaly_alerts.jsonl</location>
+</localfile>

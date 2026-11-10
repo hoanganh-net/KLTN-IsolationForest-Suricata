@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Wazuh Active Response: chan IP nguon bang LUAT DROP cua SURICATA (danh cho IPS inline AF_PACKET,
+# noi iptables FORWARD khong thay goi). Doc JSON lenh tren stdin (giao thuc AR cua Wazuh 4.x), lay
+# command (add/delete) + srcip, them/bot mot luat `drop ip <ip> ...` vao file rule roi RELOAD
+# Suricata live (suricatasc -c reload-rules, fallback USR2). Het timeout, Wazuh goi lai voi "delete".
+#
+# Giao thuc execd (4.x): execd gui MOT dong JSON va GIU stdin mo. Voi "add", script phai in thong diep
+# check_keys ra stdout, doc mot dong tra loi ("continue" hoac "abort") roi moi thuc thi.
+# => KHONG duoc dung sys.stdin.read() (cho EOF se treo vinh vien).
+#
+# DAT TREN: agent IPS (suricata-ips). Duong dan: /var/ossec/active-response/bin/suricata-drop (chmod 750,
+# chown root:wazuh). File custom.rules phai duoc include trong suricata.yaml.
+
+import sys, os, json, time, hashlib, subprocess
+
+LOG   = "/var/ossec/logs/active-responses.log"
+# Ghi vao file custom.rules co san cua IPS (da duoc include trong suricata.yaml) -> khong can sua yaml.
+# Dung dai SID RIENG 98xxxxxx (moi luat co msg "Wazuh AR") de KHONG dung quy uoc SID thu cong 1000001-1000199.
+RULES = "/var/lib/suricata/rules/custom.rules"
+
+def log(msg):
+    try:
+        with open(LOG, "a") as f:
+            f.write("%s suricata-drop: %s\n" % (time.strftime("%Y/%m/%d %H:%M:%S"), msg))
+    except Exception:
+        pass
+
+def read_msg():
+    # Doc DUNG MOT dong JSON tu execd (khong doc toi EOF).
+    line = sys.stdin.readline()
+    return json.loads(line) if line.strip() else {}
+
+def check_keys(ip):
+    # Hoi execd xem khoa (ip) da dang bi chan chua. Tra ve True neu duoc phep tiep tuc.
+    msg = {"version": 1,
+           "origin": {"name": "suricata-drop", "module": "active-response"},
+           "command": "check_keys",
+           "parameters": {"keys": [ip]}}
+    sys.stdout.write(json.dumps(msg) + "\n")
+    sys.stdout.flush()
+    try:
+        resp = read_msg()
+    except Exception as e:
+        log("ADD %s: loi doc tra loi check_keys: %s" % (ip, e)); return False
+    action = resp.get("command", "")
+    if action != "continue":
+        log("ADD %s: execd tra ve '%s', bo qua" % (ip, action or "rong"))
+        return False
+    return True
+
+def reload_suricata():
+    for cmd in (["suricatasc", "-c", "reload-rules"],
+                ["suricatasc", "-c", "ruleset-reload-rules"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if r.returncode == 0:
+                return "ok(%s)" % cmd[2]
+        except Exception:
+            pass
+    try:                                    # fallback: USR2 -> Suricata reload rules
+        subprocess.run(["pkill", "-USR2", "-x", "suricata"], timeout=10)
+        return "ok(USR2)"
+    except Exception as e:
+        return "FAIL(%s)" % e
+
+def sid_for(ip):
+    return 98000000 + int(hashlib.md5(ip.encode()).hexdigest(), 16) % 1000000
+
+def main():
+    try:
+        d = read_msg()
+    except Exception as e:
+        log("parse JSON loi: %s" % e); sys.exit(1)
+    cmd = d.get("command", "")
+    alert = (d.get("parameters") or {}).get("alert") or {}
+    ip = (alert.get("data") or {}).get("srcip") or alert.get("srcip") or ""
+    if not ip:
+        log("khong co srcip (command=%s)" % cmd); sys.exit(0)
+
+    if cmd == "add" and not check_keys(ip):
+        sys.exit(0)
+
+    sid  = sid_for(ip)
+    mark = "sid:%d;" % sid
+    rule = ('drop ip %s any -> any any (msg:"Wazuh AR - chan nguon bat thuong %s"; sid:%d; rev:1;)\n'
+            % (ip, ip, sid))
+
+    os.makedirs(os.path.dirname(RULES), exist_ok=True)
+    lines = open(RULES).read().splitlines(keepends=True) if os.path.exists(RULES) else []
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    has = any(mark in ln for ln in lines)
+
+    if cmd == "add":
+        if has:
+            log("ADD %s: da co luat, bo qua" % ip)
+        else:
+            lines.append(rule)
+            with open(RULES, "w") as f: f.writelines(lines)
+            log("ADD drop %s (sid %d) | reload=%s" % (ip, sid, reload_suricata()))
+    elif cmd == "delete":
+        if has:
+            lines = [ln for ln in lines if mark not in ln]
+            with open(RULES, "w") as f: f.writelines(lines)
+            log("DELETE drop %s (sid %d) | reload=%s" % (ip, sid, reload_suricata()))
+        else:
+            log("DELETE %s: khong co luat" % ip)
+    else:
+        log("command la: %s (bo qua)" % cmd)
+
+if __name__ == "__main__":
+    main()
