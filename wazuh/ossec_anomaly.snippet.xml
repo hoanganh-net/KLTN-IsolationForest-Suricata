@@ -6,7 +6,7 @@
       để nó CHỈ gửi cảnh báo signature, KHÔNG gửi cảnh báo anomaly (vì group anomaly không chứa
       chuỗi "suricata"). Thay khối custom-telegram hiện tại bằng khối (1) dưới đây.
       LƯU Ý: sau khi thêm filter này, custom-telegram chỉ còn gửi cảnh báo nhóm Suricata; nếu
-      trước đây anh muốn nó gửi cả cảnh báo khác (vuln, SCA...) thì cân nhắc.
+      cần gửi cả cảnh báo khác (vuln, SCA...) thì phải điều chỉnh filter.
 
   (2) THÊM integration custom-telegram-anomaly: bot/chat thứ 2, chỉ gửi các cảnh báo thuộc nhóm
       anomaly_notify (100305, 100306, 100311, 100312). Các rule 100301-100304 chỉ mang anomaly_event
@@ -18,9 +18,9 @@
   Sau khi sửa: sudo systemctl restart wazuh-manager
 -->
 
-<!-- Quy uoc truong (giong custom-telegram cua ban):  <hook_url> = BOT TOKEN,  <api_key> = CHAT_ID. -->
+<!-- Quy uoc truong (giong integration custom-telegram mac dinh):  <hook_url> = BOT TOKEN,  <api_key> = CHAT_ID. -->
 
-<!-- (1) custom-telegram signature: GIU NGUYEN <hook_url>/<api_key> hien tai cua ban (token/chat_id
+<!-- (1) custom-telegram signature: GIU NGUYEN <hook_url>/<api_key> hien tai (token/chat_id
      cua bot signature), CHI THEM <group>suricata</group> de khong gui canh bao anomaly. -->
 <integration>
   <name>custom-telegram</name>

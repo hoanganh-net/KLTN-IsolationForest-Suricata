@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-isolationforest.py — Isolation Forest TỰ CÀI (NumPy thuần, không dùng scikit-learn).
+isolationforest.py: Isolation Forest TỰ CÀI (NumPy thuần, không dùng scikit-learn).
 
 Mục đích: dùng trong các notebook của KLTN để CHO THẤY và KIỂM CHỨNG rằng thuật toán
 được hiểu đúng từ gốc, không dùng như hộp đen; kèm z-score diễn giải (zscore/explain/explain_str)
@@ -195,7 +195,7 @@ class IsolationForest:
 
 
 # =============================================================================
-# DIỄN GIẢI "VÌ SAO BẤT THƯỜNG" (z-score bền vững — gộp từ zscore.py)
+# DIỄN GIẢI "VÌ SAO BẤT THƯỜNG" (z-score bền vững, gộp từ zscore.py)
 # =============================================================================
 # Isolation Forest chỉ cho ĐIỂM bất thường, không nói đặc trưng nào gây ra. Phần dưới bù
 # điều đó bằng z = (x - tâm)/thang. Khi DIỄN GIẢI dùng tâm=median, thang=1.4826*MAD (bền

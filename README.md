@@ -12,7 +12,7 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Cảnh báo được đẩy vào Wazuh, phân loại theo bộ rule riêng, gửi Telegram và có thể chặn nguồn qua Active Response.
 
-## Kết quả chính
+## Kết quả trên tập kiểm thử
 
 Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng của mỗi mô hình được chọn trên tập kiểm định sao cho FPR không vượt 0,2%; tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
 
@@ -32,7 +32,7 @@ Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡn
 
 | Chỉ số | GET | POST |
 |---|---|---|
-| Tấn công gửi thật trên trang thực nghiệm | 99,78% | 97,47% |
+| Tấn công gửi tay trên trang thực nghiệm | 99,78% | 97,47% |
 | Recall trên tập kiểm thử (bốn loại) | 97,03% | 88,72% |
 | Recall riêng SQL Injection và XSS | 99,62% | 96,00% |
 | FPR trên request hợp lệ do script duyệt web tạo | 0% | 0% |
@@ -47,10 +47,13 @@ Mỗi giá trị tham số do đúng một mô hình chấm: query GET và trư�
 ### Kiểm chứng
 
 - Isolation Forest tự cài xếp hạng gần như trùng scikit-learn (tương quan Spearman 0,982 đến 0,994).
-- `anomaly.py` chạy trực tuyến cho cùng quyết định với notebook.
-- Cảnh báo đi qua Wazuh, gửi Telegram, và Active Response chặn nguồn tại Suricata_IPS rồi tự gỡ.
+- `anomaly.py` chấm lại toàn bộ tập kiểm thử và cho cùng quyết định với bản scikit-learn trong notebook.
 
-![Thẻ cảnh báo gửi qua Telegram](docs/the_canh_bao_telegram.png)
+## Thực nghiệm trên hệ thống triển khai
+
+Kết quả chạy các kịch bản tấn công trực tiếp trên hệ thống đã triển khai (Chương 4 của báo cáo) sẽ được cập nhật sau. Hình dưới là ví dụ thẻ cảnh báo mà nhánh bất thường gửi qua Telegram, kèm kỹ thuật MITRE ATT&CK và các biện pháp phòng ngừa.
+
+![Ví dụ thẻ cảnh báo gửi qua Telegram](docs/the_canh_bao_telegram.png)
 
 ## Hạ tầng thực nghiệm
 
@@ -64,8 +67,9 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 |---|---|
 | (thư mục gốc) | Hai notebook huấn luyện `KLTN_BehaviorIF.ipynb`, `KLTN_WebAppIF.ipynb`; `isolationforest.py` (Isolation Forest tự cài bằng NumPy); `anomaly.py` (chấm điểm trực tuyến trên `eve.json`) |
 | `wazuh/` | Bộ rule Wazuh, script thông báo Telegram, script Active Response, dịch vụ systemd |
+| `suricata/` | Rule thu thân POST và cấu hình eve-log trên Suricata_IDS |
 | `docs/` | Hình minh họa trong README |
-| `data/` | Đặt bộ dữ liệu vào đây (không đi kèm kho) |
+| `data/` | Đặt bộ dữ liệu vào đây (không đi kèm kho, xem `data/README.md`) |
 
 ## Chạy lại
 

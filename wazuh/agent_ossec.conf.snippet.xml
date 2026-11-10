@@ -4,7 +4,7 @@
             (thêm khối localfile này cạnh các localfile sẵn có, không lồng vào khối khác).
 
   Vai trò: Wazuh agent theo dõi (tail) file cảnh báo do anomaly.py sinh ra. Vì log_format=json,
-  agent tự tách mỗi dòng JSON thành các trường (module, src_ip, score, why, severity...) và gửi
+  agent tự tách mỗi dòng JSON thành các trường (module, srcip, dstip, score, why, severity...) và gửi
   về manager cho rule xử lý. Không cần decoder riêng cho JSON.
 
   location phải là đường dẫn TUYỆT ĐỐI và trùng với ANOMALY_LOG mà anomaly.py ghi.

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-anomaly.py — RUNTIME phát hiện bất thường (bản tối giản).
+anomaly.py: RUNTIME phát hiện bất thường (bản tối giản).
 
 Nạp các mô hình Isolation Forest đã huấn luyện (xuất từ các notebook, định dạng sklearn
 cho tốc độ) và chấm điểm trực tiếp trên nhật ký eve.json của Suricata:
@@ -51,7 +51,7 @@ def _in_web_targets(ip):
 
 
 # File runtime này TỰ CHỨA (chạy trên máy Suricata, không phụ thuộc folder báo cáo).
-# zscore/explain lặp lại cùng logic với hàm explain trong isolationforest.py (bên notebook) — cố ý, để runtime độc lập.
+# zscore/explain lặp lại cùng logic với hàm explain trong isolationforest.py (bên notebook); cố ý lặp lại để runtime độc lập.
 def zscore(x, center, scale):
     """Chuẩn hóa: (x - tâm) / thang. Thang ~0 -> 1 để khỏi chia cho 0."""
     scale = np.where(np.asarray(scale, float) < 1e-9, 1.0, scale)
@@ -180,12 +180,12 @@ def _load_web(path, feats):
 
 
 def _thr_q(m, q):
-    """Ngưỡng tại phân vị (1-q) trên phân bố điểm huấn luyện đã lưu (s_sk) — để tinh chỉnh độ nhạy khi demo/--live.
+    """Ngưỡng tại phân vị (1-q) trên phân bố điểm huấn luyện đã lưu (s_sk), dùng để tinh chỉnh độ nhạy khi demo/--live.
     q=None: dùng ngưỡng đã chốt trong model. q càng LỚN -> ngưỡng càng thấp -> càng nhạy (nhiều cảnh báo)."""
     if q is None: return m["thr"]
     sk = m.get("s_sk")
     if sk is None:
-        print("[CẢNH BÁO] model chưa lưu phân bố điểm (s_sk) — không tinh chỉnh được, dùng ngưỡng đã chốt; chạy lại notebook để bật --score-q.")
+        print("[CẢNH BÁO] model chưa lưu phân bố điểm (s_sk), không tinh chỉnh được, dùng ngưỡng đã chốt; chạy lại notebook để bật --score-q.")
         return m["thr"]
     return float(np.quantile(np.asarray(sk, float), 1.0 - q))
 
@@ -217,7 +217,7 @@ def _emit(alert):
                  mảng lồng mảng nên Wazuh tách field khó).
       severity : 'high'/'medium' theo VỊ TRÍ của điểm trên NGƯỠNG RIÊNG của từng engine, không theo
                  một mốc tuyệt đối. Điểm của Behavior-IF và Web-App IF có dải khác nhau (ngưỡng khác
-                 nhau) nên dùng frac = (score - thr)/(1 - thr) — phần đã đi từ ngưỡng phát hiện tới
+                 nhau) nên dùng frac = (score - thr)/(1 - thr), tức phần đã đi từ ngưỡng phát hiện tới
                  mức tối đa 1.0; frac >= 0.15 coi là 'high'. Mọi alert ở đây đều đã vượt ngưỡng, severity
                  chỉ phân tầng hiển thị. Ngưỡng 'thr' do engine truyền vào và KHÔNG ghi ra JSON."""
     why = ", ".join(f"{f}({z:+.1f})" for f, z in alert.get("reasons", []))
@@ -242,7 +242,7 @@ def _emit(alert):
 
 
 # #############################################################################
-# BEHAVIOR-IF — bản ghi flow
+# BEHAVIOR-IF: bản ghi flow
 # #############################################################################
 def _build_behavior(model_path="net_if_model.joblib"):
     VICTIM_NETS = [ipaddress.ip_network("192.168.10.0/24")]
@@ -519,7 +519,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
 
 
 # #############################################################################
-# WEB-APP IF — bản ghi http (Web-Query cho tham số truy vấn và trường ngắn của thân POST, Web-Body cho văn bản tự do)
+# WEB-APP IF: bản ghi http (Web-Query cho tham số truy vấn và trường ngắn của thân POST, Web-Body cho văn bản tự do)
 # #############################################################################
 def _build_web(model_path="web_app_if_model.joblib"):
     FEATS = ["log_len", "r_nonalnum", "r_digit", "r_upper", "entropy", "n_squote", "n_dquote",
@@ -809,7 +809,7 @@ def _build_web(model_path="web_app_if_model.joblib"):
 
 
 def main(argv):
-    # Chạy tối giản: `python3 anomaly.py --live` là đủ — tự dùng model mặc định ở thư mục hiện tại
+    # Chạy tối giản: `python3 anomaly.py --live` là đủ, chương trình tự dùng model mặc định ở thư mục hiện tại
     # (net_if_model.joblib + web_app_if_model.joblib) và nguồn log mặc định. Đường dẫn eve.json và
     # model đều có thể ghi đè qua tham số, hoặc đặt biến môi trường EVE_JSON cho đường dẫn log.
     args = argv[1:]
@@ -856,7 +856,7 @@ def main(argv):
         if os.path.exists(web_model):
             threads.append(threading.Thread(target=web.live, args=(path, iv, q_web), daemon=True))
         if not threads:
-            print(f"Không thấy model ({net_model} / {web_model}) ở thư mục hiện tại — "
+            print(f"Không thấy model ({net_model} / {web_model}) ở thư mục hiện tại: "
                   "chạy notebook để sinh model trước, hoặc trỏ --model-net/--model-web."); return
         print(f"[anomaly] chạy {len(threads)} engine trên {path} | ghi cảnh báo vào {ALERT_LOG} (Ctrl-C để dừng)")
         for t in threads: t.start()

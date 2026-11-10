@@ -1,0 +1,3 @@
+# Dat tren Suricata_IDS, them vao tep rule tuy chinh (vi du custom.rules) da khai bao trong suricata.yaml.
+# Sinh mot canh bao cho moi request POST toi vung nan nhan de eve.json ghi kem than POST (xem eve-log.snippet.yaml).
+alert http any any -> 192.168.10.0/24 any (msg:"KLTN POST body capture"; flow:established,to_server; http.method; content:"POST"; sid:1990001; rev:1;)

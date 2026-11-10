@@ -1,0 +1,15 @@
+<!--
+  DAT TREN: Wazuh manager, trong mot tep rule rieng (vi du /var/ossec/etc/rules/kltn_capture_rules.xml).
+  Rule thu than POST tren Suricata_IDS (sid 1990001, xem thu muc suricata/) sinh mot canh bao cho moi
+  request POST toi vung nan nhan. Canh bao nay chi de anomaly.py doc than POST trong eve.json, nen rule
+  100320 ha muc ve 0: khong vao thong bao, khong kich hoat Active Response.
+  Neu manager da co rule 100320 thi khong them lan nua (trung ID).
+-->
+<group name="ids,suricata,">
+  <rule id="100320" level="0">
+    <if_sid>86601</if_sid>
+    <field name="alert.signature" type="pcre2">KLTN POST body capture</field>
+    <description>KLTN: cam tin canh bao luat thu than POST - chi de capture body cho Web-Body IF</description>
+    <options>no_full_log</options>
+  </rule>
+</group>

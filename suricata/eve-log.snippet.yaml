@@ -1,0 +1,5 @@
+# suricata.yaml, khoi outputs > eve-log > types: bat ghi than HTTP trong su kien alert.
+# http-body ghi dang Base64 (giu nguyen byte, anomaly.py uu tien dung), http-body-printable ghi them ban de doc.
+- alert:
+    http-body: yes
+    http-body-printable: yes
