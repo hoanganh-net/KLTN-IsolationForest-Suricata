@@ -26,7 +26,9 @@ Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡn
 | FPR chiều vào, tập kiểm thử | 0% |
 | Cảnh báo nhầm mỗi giờ, kiểm định / kiểm thử | 1,27 / 0,75 |
 
-![Recall theo hành vi và phân bố điểm của Behavior-IF](docs/behavior_if_recall_va_diem.png)
+![Recall của Behavior-IF theo hành vi](docs/behavior_if_recall.png)
+
+![Phân bố điểm của cửa sổ chiều ra trên tập kiểm thử](docs/behavior_if_phan_bo_diem.png)
 
 ### Web-App IF
 
@@ -38,11 +40,15 @@ Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡn
 | FPR trên request hợp lệ do script duyệt web tạo | 0% | 0% |
 | FPR chung trên tập kiểm thử | 0,533% | 0,534% |
 
-![Recall của Web-App IF theo loại tấn công](docs/web_app_if_recall_theo_loai.png)
+![Recall của Web-App IF với SQL Injection và XSS](docs/web_app_if_recall_sqli_xss.png)
 
-![Phân bố điểm của Web-Query IF và Web-Body IF theo loại tấn công](docs/web_app_if_phan_bo.png)
+![Phân bố điểm của Web-Query IF và Web-Body IF với SQL Injection và XSS](docs/web_app_if_phan_bo_sqli_xss.png)
 
-Mỗi giá trị tham số do đúng một mô hình chấm: query GET và trường ngắn của POST (email, tên, mã số, trường ẩn của form...) do Web-Query IF chấm (cột trái); văn bản tự do của POST (bình luận, nội dung tin nhắn, bài viết) do Web-Body IF chấm (cột phải). Mỗi hàng là một loại tấn công, so với giá trị hợp lệ và ngưỡng của mô hình. Một request bị gắn cờ khi có giá trị vượt ngưỡng của mô hình chấm nó; cột ở điểm 1,0 là các giá trị bị bước kiểm tra miền gán điểm 1. SQL Injection và XSS nằm xa ngưỡng ở cả hai mô hình; command injection và path traversal sát ngưỡng hơn, nhất là ở văn bản tự do, và là điểm yếu của mô-đun.
+![Recall của Web-App IF với command injection và path traversal](docs/web_app_if_recall_cmdi_pt.png)
+
+![Phân bố điểm của Web-Query IF và Web-Body IF với command injection và path traversal](docs/web_app_if_phan_bo_cmdi_pt.png)
+
+Mỗi giá trị tham số do đúng một mô hình chấm: query GET và trường ngắn của POST (email, tên, mã số, trường ẩn của form...) do Web-Query IF chấm (nửa trái của hình phân bố điểm); văn bản tự do của POST (bình luận, nội dung tin nhắn, bài viết) do Web-Body IF chấm (nửa phải). Mỗi nửa so phân bố điểm của giá trị hợp lệ với giá trị mang tấn công của nhóm, kèm ngưỡng của mô hình. Một request bị gắn cờ khi có giá trị vượt ngưỡng của mô hình chấm nó; cột ở điểm 1,0 là các giá trị bị bước kiểm tra miền gán điểm 1. SQL Injection và XSS nằm xa ngưỡng ở cả hai mô hình; command injection và path traversal sát ngưỡng hơn, nhất là ở văn bản tự do, và là điểm yếu của mô-đun.
 
 ### Kiểm chứng
 
@@ -68,7 +74,7 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 | (thư mục gốc) | Hai notebook huấn luyện `KLTN_BehaviorIF.ipynb`, `KLTN_WebAppIF.ipynb`; `isolationforest.py` (Isolation Forest tự cài bằng NumPy); `anomaly.py` (chấm điểm trực tuyến trên `eve.json`) |
 | `wazuh/` | Bộ rule Wazuh, script thông báo Telegram, script Active Response, dịch vụ systemd |
 | `suricata/` | Rule thu thân POST và cấu hình eve-log trên Suricata_IDS |
-| `docs/` | Hình minh họa trong README |
+| `docs/` | Hình minh họa trong README; các hình kết quả do hai notebook ghi ra |
 | `data/` | Đặt bộ dữ liệu vào đây (không đi kèm kho, xem `data/README.md`) |
 
 ## Chạy lại
