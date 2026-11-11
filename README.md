@@ -71,7 +71,7 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 | Thư mục | Nội dung |
 |---|---|
-| (thư mục gốc) | Hai notebook huấn luyện `KLTN_BehaviorIF.ipynb`, `KLTN_WebAppIF.ipynb`; `isolationforest.py` (Isolation Forest tự cài bằng NumPy); `anomaly.py` (chấm điểm trực tuyến trên `eve.json`) |
+| (thư mục gốc) | Hai notebook huấn luyện `KLTN_BehaviorIF.ipynb`, `KLTN_WebAppIF.ipynb`; `behavior_features.py`, `web_features.py` (đặc trưng, tách đơn vị, huấn luyện, chấm điểm và chọn ngưỡng của từng mô-đun; notebook nạp và gọi các hàm này); `isolationforest.py` (Isolation Forest tự cài bằng NumPy); `anomaly.py` (chấm điểm trực tuyến trên `eve.json`) |
 | `wazuh/` | Bộ rule Wazuh, script thông báo Telegram, script Active Response, dịch vụ systemd |
 | `suricata/` | Rule thu thân POST và cấu hình eve-log trên Suricata_IDS |
 | `docs/` | Hình minh họa trong README; các hình kết quả do hai notebook ghi ra |
@@ -88,4 +88,4 @@ python -m venv .venv
 .venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_BehaviorIF.ipynb
 ```
 
-Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
+Hai notebook cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
