@@ -55,6 +55,33 @@ MODULE_NAME = {
     "anomaly_web_body": "Văn bản tự do POST (Web-Body)",
 }
 
+# Trạng thái sự cố do anomaly.py --live ghi cho cảnh báo hành vi (gom các cửa sổ bất thường của cùng một cặp nguồn, đích).
+EPISODE_VI = {
+    "new":          "mới",
+    "escalated":    "tăng mức độ",
+    "new_behavior": "hành vi đổi dạng",
+    "ongoing":      "vẫn tiếp diễn",
+}
+
+def _ts(s):
+    """'2026-10-11T00:15:00+07:00' -> '2026-10-11 00:15' (giờ theo múi giờ của máy chạy anomaly.py)."""
+    return str(s)[:16].replace("T", " ")
+
+def episode_line(data):
+    """Dòng thời điểm cửa sổ và sự cố cho cảnh báo hành vi; rỗng nếu cảnh báo không có các trường này (bản anomaly.py cũ)."""
+    ws, st = data.get("window_start"), str(data.get("episode_state") or "")
+    parts = []
+    if ws:
+        parts.append("🕒 <b>Cửa sổ</b> từ {0}".format(e(_ts(ws))))
+    if st:
+        s = "🔁 <b>Sự cố</b>: {0}".format(e(EPISODE_VI.get(st, st)))
+        if st != "new" and data.get("episode_start"):
+            s += ", bắt đầu {0}".format(e(_ts(data.get("episode_start"))))
+        if data.get("episode_windows"):
+            s += ", {0} bucket 30' bất thường".format(e(data.get("episode_windows")))
+        parts.append(s)
+    return " | ".join(parts)
+
 # --- Từ điển 1: diễn giải z-score sang tiếng Việt (11 đặc trưng hành vi + 13 đặc trưng từ vựng web) ---
 ZSCORE_VI = {
     # Behavior-IF (flow)
@@ -343,6 +370,9 @@ def build_message(rule, data):
         try: s = "{0:.3f}".format(float(score))
         except Exception: s = e(score)
         L.append("📊 <b>Điểm</b> {0}".format(s) + (" | <b>Mức độ</b> {0}".format(e(severity)) if severity else ""))
+    if module == "anomaly_if":
+        ep = episode_line(data)
+        if ep: L.append(ep)
 
     reasons = parse_reasons(why)
     if reasons:

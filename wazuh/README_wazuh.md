@@ -43,6 +43,35 @@ hưởng rule.
 **Lưu ý trường IP:** `anomaly.py` nay xuất cảnh báo với `srcip`/`dstip` (quy ước Wazuh) thay cho
 `src_ip`/`dest_ip`, để `same_source_ip` và `suricata-drop` đọc đúng nguồn cần chặn.
 
+## Cảnh báo hành vi: chấm cửa sổ đã đóng và gom theo sự cố
+
+Ở chế độ `--live`, Behavior-IF chấm mỗi cửa sổ 30 phút đúng một lần, khi cửa sổ đã đóng và đã chờ thêm
+`ANOMALY_FLOW_DELAY_S` (mặc định 360 giây) cho các bản ghi flow ghi trễ, nên cửa sổ được chấm giống cửa sổ mà notebook
+đánh giá. Cảnh báo hành vi vì vậy đến sau khi cửa sổ đóng: trên nhật ký của lab, cửa sổ bị gắn cờ đầu tiên của một lượt
+tấn công được chấm sau trung vị 18 phút, chậm nhất khoảng 41 phút kể từ lúc lượt bắt đầu. Mỗi lần khởi động lại, cửa sổ đầu
+tiên chỉ được chấm sau khoảng 40-50 phút, nên khởi động dịch vụ trước đợt thử ít nhất một giờ.
+
+Các cửa sổ bị gắn cờ được gom theo sự cố của cặp (`srcip`, `dstip`) trước khi ghi ra `anomaly_alerts.jsonl`, để một hành
+vi kéo dài không sinh một cảnh báo ở mỗi bucket 30 phút. Một cửa sổ bị gắn cờ chỉ sinh cảnh báo trong các trường hợp sau
+(trường `episode_state`):
+
+| `episode_state` | Khi nào sinh cảnh báo |
+|---|---|
+| `new` | Cửa sổ bị gắn cờ đầu tiên của cặp, hoặc cửa sổ đầu tiên sau khi cặp đã yên lặng quá `ANOMALY_EPISODE_QUIET_MIN` (mặc định 120 phút) |
+| `escalated` | Trong sự cố, mức độ tăng từ `medium` lên `high` |
+| `new_behavior` | Trong sự cố, đặc trưng lệch nhiều nhất đổi sang một đặc trưng chưa gặp trong sự cố |
+| `ongoing` | Sự cố còn tiếp diễn sau `ANOMALY_EPISODE_REMIND_MIN` (mặc định 360 phút) kể từ cảnh báo trước của sự cố; đặt 0 để tắt nhắc lại |
+
+Các cửa sổ bị gắn cờ còn lại chỉ được cộng dồn vào sự cố. Cảnh báo hành vi có thêm `window_start` (thời điểm bắt đầu
+cửa sổ), `episode` (mã sự cố), `episode_start` và `episode_windows` (số bucket 30 phút bất thường tính tới lúc đó); thẻ
+Telegram hiện các trường này trên một dòng riêng. Khi sự cố đóng, anomaly.py chỉ in một dòng tổng kết ra nhật ký của dịch
+vụ (`journalctl -u anomaly-ids`), không ghi vào tệp cảnh báo. Đặt `ANOMALY_EPISODE=0` để quay về cách cũ (mỗi bucket 30
+phút một cảnh báo).
+
+Ảnh hưởng tới rule: 100311/100312 đếm theo `srcip` trong 5 và 10 phút. Trước đây, một nguồn có từ 5 cặp bất thường kéo
+dài trở lên làm hai rule này kích hoạt lại mỗi khi cửa sổ đóng; nay chúng chủ yếu kích hoạt lúc các sự cố bắt đầu, hoặc
+khi nhiều sự cố cùng tăng mức hay nhắc lại. Cảnh báo web không được gom.
+
 ## Bước 1: Host IDS (nơi có Suricata_IDS + agent)
 
 Tạo thư mục log và chạy anomaly.py như cũ (xem `agent_ossec.conf.snippet.xml` cho khối `localfile`):
@@ -53,6 +82,10 @@ ANOMALY_LOG=/var/log/suricata-anomaly/anomaly_alerts.jsonl \
   python3 anomaly.py --live /var/log/suricata/eve.json
 sudo systemctl restart wazuh-agent
 ```
+
+`--detect` (chấm lại một tệp nhật ký) là chế độ phân tích offline nên mặc định ghi `anomaly_detect.jsonl` ở thư mục hiện
+tại (đổi bằng `--out` hoặc `ANOMALY_DETECT_LOG`), không ghi vào tệp Wazuh đọc: trường `time` là giờ chạy, Wazuh sẽ coi
+cảnh báo của nhật ký cũ là cảnh báo mới. Chỉ thêm `--to-wazuh` khi thật sự muốn đẩy kết quả lên Wazuh.
 
 ## Bước 2: Wazuh manager
 

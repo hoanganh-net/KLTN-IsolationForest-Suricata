@@ -12,7 +12,7 @@ cho tốc độ) và chấm điểm trực tiếp trên nhật ký eve.json củ
                                cảnh báo ghi thêm trường out_of_range)
 
 Dùng:
-    python3 anomaly.py --detect eve.json [--last 30]
+    python3 anomaly.py --detect eve.json [--last 30] [--out F | --to-wazuh]   (mặc định ghi anomaly_detect.jsonl)
     python3 anomaly.py --live   eve.json [--interval N]
 
 File này TỰ CHỨA phần trích đặc trưng phục vụ chấm điểm runtime; các notebook huấn luyện định
@@ -210,6 +210,13 @@ def _ngoai_mien(m, V):
     return (np.abs(X[:, j] - m["guard_val"]) > 1e-12).any(1)
 
 
+def _severity(score, thr):
+    """'high'/'medium' theo vị trí của điểm trên ngưỡng riêng của engine (xem giải thích ở _emit)."""
+    if thr is not None and thr < 1.0:
+        return "high" if (score - thr) / (1.0 - thr) >= 0.15 else "medium"
+    return "high" if score >= 0.70 else "medium"   # dự phòng khi engine không truyền ngưỡng
+
+
 def _emit(alert):
     """In gọn + ghi JSON vào ALERT_LOG (Wazuh agent đọc file này -> rule -> thông báo/đề xuất).
     Thêm 2 trường phục vụ hiển thị, KHÔNG ảnh hưởng quyết định của model:
@@ -225,12 +232,7 @@ def _emit(alert):
     alert.pop("reasons", None)       # KHÔNG ghi mảng lồng [tên, z] ra JSON: indexer Wazuh/OpenSearch xung đột
                                      # kiểu field (chuỗi lẫn số) -> rớt document khỏi dashboard; 'why' đã đủ.
     thr = alert.pop("thr", None)
-    score = alert.get("score", 0) or 0
-    if thr is not None and thr < 1.0:
-        frac = (score - thr) / (1.0 - thr)
-        alert["severity"] = "high" if frac >= 0.15 else "medium"
-    else:
-        alert["severity"] = "high" if score >= 0.70 else "medium"   # dự phòng khi engine không truyền ngưỡng
+    alert["severity"] = _severity(alert.get("score", 0) or 0, thr)
     # Chuẩn hóa tên trường IP theo quy ước Wazuh (srcip/dstip) để tương thích
     # <same_source_ip> trong rule tương quan và script suricata-drop của Active Response.
     if "src_ip" in alert:  alert["srcip"] = alert.pop("src_ip")
@@ -292,10 +294,23 @@ def _build_behavior(model_path="net_if_model.joblib"):
         return (zs == "victim" and zd in ("ext", "mgmt")) or (zs == "ext" and zd == "victim")
 
     # Giới hạn bộ đệm của chế độ --live để vòng chấm không quá tải khi lưu lượng tăng đột biến (ví dụ bị làm ngập):
-    # một cặp đã vượt giới hạn thì cửa sổ của nó đã nằm xa ngoài dải huấn luyện và đã được chấm ở các vòng trước.
+    # cặp vượt giới hạn chỉ mất các luồng cũ nhất, cửa sổ của nó vẫn còn tới BUF_MAX_PER_PAIR luồng nên vẫn khác hẳn
+    # lưu lượng bình thường.
     BUF_MAX_ROWS     = int(os.environ.get("ANOMALY_BUF_MAX_ROWS", "400000"))      # tổng số luồng giữ trong bộ đệm
     BUF_MAX_PER_PAIR = int(os.environ.get("ANOMALY_BUF_MAX_PER_PAIR", "50000"))   # số luồng tối đa của một cặp
     BUF_MAX_PAIRS    = int(os.environ.get("ANOMALY_BUF_MAX_PAIRS", "20000"))      # số cặp tối đa theo dõi cùng lúc
+    # Suricata ghi bản ghi flow khi luồng hết thời gian chờ, nên bản ghi đến sau thời điểm kết thúc luồng: trên nhật ký
+    # của lab, 99,4% đến trong 6 phút và mọi bản ghi đến trong khoảng 10 phút.
+    FLOW_DELAY       = int(os.environ.get("ANOMALY_FLOW_DELAY_S", "360"))
+    # Gom cảnh báo của chế độ --live theo SỰ CỐ của từng cặp (nguồn, đích), để một hành vi kéo dài không sinh một cảnh
+    # báo ở mỗi bucket 30 phút. Cửa sổ bị gắn cờ đầu tiên mở sự cố và sinh cảnh báo; cửa sổ bị gắn cờ sau đó của cùng cặp
+    # chỉ được cộng dồn, trừ ba trường hợp vẫn sinh cảnh báo: mức độ tăng từ medium lên high, đặc trưng lệch nhiều nhất
+    # đổi sang một đặc trưng chưa gặp trong sự cố (hành vi đổi dạng), hoặc đã quá EP_REMIND kể từ cảnh báo trước của sự
+    # cố. Sự cố đóng khi cặp đó không còn cửa sổ bị gắn cờ trong EP_QUIET; lần bất thường sau đó mở sự cố mới.
+    # ANOMALY_EPISODE=0 tắt việc gom (mỗi bucket 30 phút một cảnh báo như trước).
+    EP_ON     = os.environ.get("ANOMALY_EPISODE", "1") != "0"
+    EP_QUIET  = int(float(os.environ.get("ANOMALY_EPISODE_QUIET_MIN", "120")) * 60)
+    EP_REMIND = int(float(os.environ.get("ANOMALY_EPISODE_REMIND_MIN", "360")) * 60)   # 0: không nhắc lại
 
     def cap_buffer(buf):
         """Giữ luồng mới nhất khi bộ đệm vượt giới hạn theo tổng, theo cặp và theo số cặp."""
@@ -444,14 +459,19 @@ def _build_behavior(model_path="net_if_model.joblib"):
             for i, sc in zip(vao, _score(mi, X[vao])): out.append((i, sc, mi, thr_i))
         return out
 
-    def _emit_beh(key, x, sc, m, thr, loc):
+    def _iso(ts):
+        return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
+
+    def _emit_beh(key, x, sc, m, thr, loc, reasons=None, extra=None):
         src, dst, other, n, off, b, top = key
         _emit({"module": "anomaly_if", "time": datetime.now().isoformat(timespec="seconds"),
                "src_ip": src, "dest_ip": dst, "ext_ip": other, "n_conn": int(n),
                "direction": "out" if zone(src) == "victim" else "in", "dport_top": top,
                "zone_other": zone(other), "frac_out": round(float(x[I_FRAC_OUT]), 3),
+               "window_start": _iso(b * WINDOW_MIN * 60 + off),
                "location": loc, "score": float(sc), "thr": thr,
-               "reasons": explain(x, m["med"], m["scale"], FEATS)})
+               "reasons": reasons if reasons is not None else explain(x, m["med"], m["scale"], FEATS),
+               **(extra or {})})
 
     # ---- runtime ----
     def detect(path, last_min=None, score_q=None, score_q_in=None):
@@ -471,19 +491,54 @@ def _build_behavior(model_path="net_if_model.joblib"):
               + (f" | chiều vào: {n['in']} cặp-cửa-sổ, {fired['in']} vượt ngưỡng ({thr_i:.4f})" if mi is not None else ""))
 
     def live(path, interval=None, score_q=None, score_q_in=None):
-        # ĐỌC TĂNG DẦN + buffer cuộn: mỗi vòng chỉ đọc phần MỚI của eve.json (seek theo pos) rồi
-        # dựng cửa sổ từ các flow gần đây giữ trong bộ nhớ. Tránh đọc lại cả file mỗi vòng (vừa ghim
-        # CPU, vừa giữ GIL làm engine web bị bỏ đói). Lần đầu pos=0 nên đọc hết một lần để có lịch sử,
-        # sau đó chỉ đọc phần bổ sung.
+        # ĐỌC TĂNG DẦN + buffer cuộn: mỗi vòng chỉ đọc phần MỚI của eve.json (seek theo pos) và giữ các flow gần đây
+        # trong bộ nhớ, không đọc lại cả file. Mỗi cửa sổ chỉ được chấm MỘT lần, khi đã đóng: đồng hồ (thời điểm kết
+        # thúc của flow mới nhất đã đọc) vượt cuối cửa sổ cộng FLOW_DELAY, và cửa sổ chưa mất luồng nào vì cắt bộ đệm
+        # hay vì chương trình mới khởi động. Cửa sổ được chấm vì vậy trùng với cửa sổ của notebook, trừ các luồng kéo
+        # dài kết thúc sau thời điểm chấm (trên nhật ký của lab khoảng 2% cửa sổ thiếu một vài luồng như vậy). Chấm cả
+        # cửa sổ đang mở hoặc đã mất luồng đầu làm số cảnh báo nhầm tăng khoảng gấp đôi.
+        # Đánh đổi: cảnh báo hành vi đến sau khi cửa sổ đóng, chậm nhất khoảng 30' + FLOW_DELAY kể từ đầu cửa sổ.
+        # Cửa sổ bị gắn cờ được gom theo sự cố của cặp (nguồn, đích) trước khi phát cảnh báo (xem EP_ON, EP_QUIET, EP_REMIND).
         m = _load(model_path, FEATS); thr = _thr_q(m, score_q); iv = interval or 30
         rc, rt = m["rarity_counts"], m["rarity_total"]
         print(f"[BEHAVIOR-IF live] model có {len(FEATS)} đặc trưng, cửa sổ {WINDOW_MIN}', ngưỡng={thr:.4f}, mỗi {iv}s", flush=True)
         mi = _inbound(m); thr_i = _thr_q(mi, score_q_in) if mi is not None else None
         rar_in = (mi["rarity_counts"], mi["rarity_total"]) if mi is not None else None
         print("[BEHAVIOR-IF live] chiều vào: " + (f"bật, ngưỡng={thr_i:.4f}" if mi is not None else "tắt (model chưa có khóa 'inbound')"), flush=True)
-        seen = set(); buf = []; last_note = 0.0
+        if EP_ON:
+            print(f"[BEHAVIOR-IF live] gom cảnh báo theo sự cố: đóng sau {EP_QUIET // 60}' yên lặng, nhắc lại sau "
+                  + (f"{EP_REMIND // 60}'" if EP_REMIND else "(tắt)"), flush=True)
+        else:
+            print("[BEHAVIOR-IF live] gom cảnh báo theo sự cố: tắt (mỗi bucket 30' một cảnh báo)", flush=True)
+        seen = set(); scored = set(); buf = []; last_note = 0.0
+        ep = {}                                            # sự cố đang mở: (nguồn, đích) -> trạng thái
         st = _tail_start(path)                             # bắt đầu từ CUỐI file: chỉ dựng cửa sổ từ flow MỚI
-        KEEP = (WINDOW_MIN + WINDOW_HOP_MIN) * 60          # giữ flow đủ gần để dựng cửa sổ
+        W = WINDOW_MIN * 60
+
+        def _su_co(kk, sc, t, reasons):
+            """Cửa sổ bị gắn cờ kk có sinh cảnh báo không: trả (trạng thái, các trường sự cố); trạng thái None nghĩa là chỉ
+            cộng dồn vào sự cố đang mở. Thời gian tính theo thời điểm bắt đầu cửa sổ, không theo giờ máy."""
+            p = (kk[0], kk[1]); tw = kk[5] * W + kk[4]
+            sev = _severity(sc, t); top = reasons[0][0] if reasons else ""
+            e = ep.get(p)
+            if e is None or tw - e["last"] > EP_QUIET:
+                e = ep[p] = {"id": f"{p[0]}>{p[1]}@{_iso(tw)}", "start": tw, "last": tw, "emit": tw,
+                             "sev": sev, "tops": {top}, "n": 1, "n_emit": 0}
+                state = "new"
+            else:
+                e["n"] += 1; e["last"] = max(e["last"], tw)
+                if sev == "high" and e["sev"] != "high": state = "escalated"
+                elif top and top not in e["tops"]: state = "new_behavior"
+                elif EP_REMIND and tw - e["emit"] >= EP_REMIND: state = "ongoing"
+                else: state = None
+                e["tops"].add(top)
+                if sev == "high": e["sev"] = "high"
+            if state is not None:
+                e["emit"] = tw; e["n_emit"] += 1
+            return state, {"episode": e["id"], "episode_state": state, "episode_start": _iso(e["start"]),
+                           "episode_windows": e["n"]}
+        KEEP = W + WINDOW_HOP_MIN * 60 + FLOW_DELAY        # giữ flow tới khi mọi cửa sổ chứa nó đã được chấm
+        clock = None; t_from = None                        # cửa sổ bắt đầu trước t_from có thể thiếu luồng
         while True:
             tmax = None
             for line in _tail_lines(path, st):
@@ -492,27 +547,54 @@ def _build_behavior(model_path="net_if_model.joblib"):
                 except Exception: continue
                 r = flow_row(o, rc, rt, rar_in)
                 if r is None: continue
-                buf.append(r)                              # r = ((src,dst), row)
                 en = r[1][0] + r[1][3]
+                if en > time.time() + 300: continue        # mốc thời gian ở tương lai (đồng hồ lệch): bỏ, để không đẩy đồng hồ đi xa
+                buf.append(r)                              # r = ((src,dst), row)
                 if tmax is None or en > tmax: tmax = en
-            if tmax is not None:                           # cắt flow quá cũ -> buffer bị chặn
-                lo = tmax - KEEP
+            if tmax is not None:
+                clock = tmax if clock is None else max(clock, tmax)
+                if t_from is None: t_from = clock          # lần đọc đầu: cửa sổ đã mở trước lúc khởi động bị bỏ qua
+            if buf and clock is not None:
+                P = collections.defaultdict(list)
+                for (pk, row) in buf: P[pk].append(row)
+                keys, X = _windows_from_P(P)
+                chon = [i for i, k in enumerate(keys)
+                        if t_from <= k[5] * W + k[4] <= clock - W - FLOW_DELAY and (k[0], k[1], k[4], k[5]) not in scored]
+                if chon:
+                    keys = [keys[i] for i in chon]; X = X[chon]
+                    scored.update((k[0], k[1], k[4], k[5]) for k in keys)
+                    gan_co = sorted(((i, sc, mm, t) for i, sc, mm, t in score_split(keys, X, m, thr, mi, thr_i) if sc > t),
+                                    key=lambda z: keys[z[0]][5] * W + keys[z[0]][4])   # theo thời điểm bắt đầu cửa sổ
+                    for i, sc, mm, t in gan_co:
+                        kk = keys[i]; k = (kk[0], kk[1], kk[5])  # (nguồn, đích, bucket): hai lưới lệch 15' gộp một cảnh báo
+                        if k in seen: continue
+                        seen.add(k)
+                        reasons = explain(X[i], mm["med"], mm["scale"], FEATS)
+                        extra = None
+                        if EP_ON:
+                            state, extra = _su_co(kk, sc, t, reasons)
+                            if state is None:                  # cộng dồn vào sự cố đang mở: không ghi tệp cảnh báo, chỉ in ra nhật ký
+                                print(f"[BEHAVIOR-IF live] cộng dồn vào sự cố {extra['episode']}: cửa sổ từ {_iso(kk[5] * W + kk[4])}, "
+                                      f"điểm {sc:.3f}, {extra['episode_windows']} bucket bất thường", flush=True)
+                                continue
+                        _emit_beh(kk, X[i], sc, mm, t, f"cửa sổ {WINDOW_MIN}'", reasons, extra)
+            if clock is not None:                          # cắt flow quá cũ SAU khi đã chấm
+                lo = clock - KEEP
+                t_from = max(t_from, lo)
                 buf = [rr for rr in buf if rr[1][0] + rr[1][3] >= lo]
                 buf, note = cap_buffer(buf)
                 if note and time.time() - last_note > 60:
                     print(f"[BEHAVIOR-IF live] bộ đệm chạm giới hạn ({'; '.join(note)}), chỉ giữ luồng mới nhất", flush=True)
                     last_note = time.time()
-                bmin = int((lo - WINDOW_MIN * 60) // (WINDOW_MIN * 60))
+                bmin = int((lo - W) // W)
                 seen = {k for k in seen if k[2] >= bmin}       # bỏ khóa của cửa sổ đã trôi qua
-            if buf:
-                P = collections.defaultdict(list)
-                for (pk, row) in buf: P[pk].append(row)
-                keys, X = _windows_from_P(P)
-                if len(X):
-                    for i, sc, mm, t in score_split(keys, X, m, thr, mi, thr_i):
-                        kk = keys[i]; k = (kk[0], kk[1], kk[5])  # (nguồn, đích, bucket)
-                        if sc > t and k not in seen:
-                            seen.add(k); _emit_beh(kk, X[i], sc, mm, t, f"cửa sổ {WINDOW_MIN}'")
+                scored = {k for k in scored if k[3] >= bmin}
+                if EP_ON:                                  # đóng sự cố đã yên lặng quá EP_QUIET (cửa sổ chưa chấm đều bắt đầu sau han - 15')
+                    han = clock - W - FLOW_DELAY
+                    for p in [p for p, e in ep.items() if han - e["last"] > EP_QUIET + WINDOW_HOP_MIN * 60]:
+                        e = ep.pop(p)
+                        print(f"[BEHAVIOR-IF live] đóng sự cố {e['id']}: {e['n']} bucket bất thường, {e['n_emit']} cảnh báo, "
+                              f"cửa sổ bất thường cuối bắt đầu {_iso(e['last'])}", flush=True)
             time.sleep(iv)
 
     return types.SimpleNamespace(detect=detect, live=live)
@@ -526,7 +608,8 @@ def _build_web(model_path="web_app_if_model.joblib"):
              "n_angle", "n_paren", "n_punct_inj", "n_kw", "n_pct", "max_run_sym"]
     # Tên trường văn bản tự do của các ứng dụng được bảo vệ -> luôn đưa sang Web-Body (không phụ thuộc độ dài).
     # Cấu hình theo ứng dụng: comment/message/... (WordPress), mtxMessage (sổ lưu bút DVWA). Mở rộng ở đây khi
-    # thêm ứng dụng mới. Trường KHÔNG đăng ký vẫn được xét nếu giá trị đủ dài theo heuristic bên dưới.
+    # thêm ứng dụng mới. Joblib từ v1.2 (free_by = "field") chỉ xét theo tên trường; heuristic độ dài bên dưới chỉ
+    # còn dùng cho joblib cũ.
     FREE_FIELDS = {"your-message", "content", "comment", "your-subject", "title", "message", "body", "mtxMessage"}
     _FREE_ENV = os.environ.get("WEB_FREE_FIELDS", "")   # cho phép bổ sung lúc chạy: WEB_FREE_FIELDS=f1,f2
     for _f in _FREE_ENV.replace(";", ",").split(","):
@@ -627,6 +710,22 @@ def _build_web(model_path="web_app_if_model.joblib"):
             out.append((nm.group(1), val[:-2] if val.endswith("\r\n") else val.rstrip("\n")))
         return out
 
+    _XML_BODY  = re.compile(r"(?:<\?xml\b|<\s*(?:methodCall|methodResponse)\b|<\s*[\w.-]+:Envelope\b)", re.I)
+    _XML_CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.S)
+    _XML_SKIP  = re.compile(r"<!--.*?-->|<\?.*?\?>|<!DOCTYPE[^>]*>", re.S | re.I)
+    _XML_LEAF  = re.compile(r"<([A-Za-z_][\w.:-]*)[^<>]*>([^<]+)")
+
+    def _xml_text_leaves(s, max_leaves=200):
+        """Thân XML (XML-RPC, SOAP) -> [(tên thẻ chứa, chuỗi văn bản)], đã giải mã thực thể, bỏ chuỗi chỉ có khoảng trắng.
+        Dùng biểu thức chính quy thay cho bộ phân tích XML để không phải xử lý thực thể ngoài hay khai báo DOCTYPE."""
+        out = [("cdata", c) for c in _XML_CDATA.findall(s) if c.strip()]
+        s = _XML_SKIP.sub("", _XML_CDATA.sub("", s))
+        for mt in _XML_LEAF.finditer(s):
+            v = html.unescape(mt.group(2)).strip()
+            if v: out.append((mt.group(1).split(":")[-1], v))
+            if len(out) >= max_leaves: break
+        return out[:max_leaves]
+
     def _raw_units(url, body=None):
         units = []
         if url:
@@ -648,6 +747,11 @@ def _build_web(model_path="web_app_if_model.joblib"):
                     if v: units.append((f"body:{k}", v.replace("\x00", "%00")))
             elif bs[:1] in "{[":
                 for lab, v in _json_string_leaves(bs): units.append((f"body:{lab}", v.replace("\x00", "%00")))
+            elif _XML_BODY.match(bs):
+                # Thân XML: chấm từng chuỗi văn bản như trường ngắn của biểu mẫu. Trước đây thân XML rơi vào nhánh biểu mẫu
+                # vì khai báo <?xml version="1.0"?> có dấu "=", nên mọi yêu cầu XML-RPC đều bị gắn cờ điểm 1. Bộ dựng dữ
+                # liệu chưa có nhánh này; dữ liệu huấn luyện và kiểm thử không có thân XML nên số liệu không đổi.
+                for lab, v in _xml_text_leaves(bs): units.append((f"body:{lab}", v.replace("\x00", "%00")))
             elif "=" in bs:
                 for k, v in parse_qsl(bs, keep_blank_values=True):
                     if v: units.append((f"body:{k}", decode_once(v)))
@@ -784,19 +888,20 @@ def _build_web(model_path="web_app_if_model.joblib"):
                 # Một yêu cầu POST có thể khớp nhiều luật (luật thu thập + luật chữ ký) -> nhiều event
                 # alert cùng mang một thân. Chỉ chấm mỗi giao dịch một lần cho mỗi nguồn (http/alert).
                 tx = (o.get("flow_id"), o.get("tx_id"), "alert" if is_alert else "http")
-                if tx[0] is not None and tx[1] is not None:
-                    if tx in done: continue
-                    done[tx] = None
-                    if len(done) > 100000: done.popitem(last=False)
+                co_khoa = tx[0] is not None and tx[1] is not None
+                if co_khoa and tx in done: continue
                 if is_http:                                        # event http: chỉ query (GET + query POST)
                     rec = {"src_ip": o.get("src_ip"), "dest_ip": o.get("dest_ip"), "dest_port": o.get("dest_port"),
                            "host": h.get("hostname"), "method": h.get("http_method"), "url": h.get("url"), "body": None}
                 else:                                              # event alert: chỉ thân POST (base64, dự phòng bản printable)
                     body = _decode_body(h)
-                    if not body: continue
+                    if not body: continue                          # alert chưa mang thân: alert sau của cùng giao dịch vẫn được xét
                     ep = urlsplit(h.get("url")).path if h.get("url") else None  # giữ endpoint để hiển thị, bỏ query (tránh chấm trùng)
                     rec = {"src_ip": o.get("src_ip"), "dest_ip": o.get("dest_ip"), "dest_port": o.get("dest_port"),
                            "host": h.get("hostname"), "method": h.get("http_method"), "url": ep, "body": body}
+                if co_khoa:
+                    done[tx] = None
+                    if len(done) > 100000: done.popitem(last=False)
                 if not _in_web_targets(rec["dest_ip"]): continue   # chỉ chấm http đi vào web server bảo vệ
                 for module, lab, sc, reasons, thr, oor in _route_and_score(rec, mq, mb):
                     _emit({"module": module, "time": datetime.now().isoformat(timespec="seconds"),
@@ -812,6 +917,7 @@ def main(argv):
     # Chạy tối giản: `python3 anomaly.py --live` là đủ, chương trình tự dùng model mặc định ở thư mục hiện tại
     # (net_if_model.joblib + web_app_if_model.joblib) và nguồn log mặc định. Đường dẫn eve.json và
     # model đều có thể ghi đè qua tham số, hoặc đặt biến môi trường EVE_JSON cho đường dẫn log.
+    global ALERT_LOG
     args = argv[1:]
     def opt(flag, d=None):
         if flag in args:
@@ -833,7 +939,11 @@ def main(argv):
 
     if has("--detect"):
         path = opt("--detect", EVE)
-        print(f"[anomaly] ghi cảnh báo vào {ALERT_LOG}")
+        # --detect là chế độ phân tích offline nên mặc định KHÔNG ghi vào tệp Wazuh đang đọc: trường time là giờ chạy, Wazuh
+        # sẽ coi cảnh báo của nhật ký cũ là cảnh báo mới (luật tương quan, Telegram, Active Response). --to-wazuh để ghi vào đó.
+        if not has("--to-wazuh"):
+            ALERT_LOG = opt("--out") or os.environ.get("ANOMALY_DETECT_LOG", "anomaly_detect.jsonl")
+        print(f"[anomaly] ghi cảnh báo vào {ALERT_LOG}" + ("" if has("--to-wazuh") else " (không phải tệp Wazuh đọc; thêm --to-wazuh nếu cần)"))
         if os.path.exists(net_model): beh.detect(path, last, q_net, q_in)
         else: print(f"[BEHAVIOR-IF] bỏ qua: không thấy {net_model}")
         if os.path.exists(web_model): web.detect(path, last, q_web)
@@ -866,7 +976,7 @@ def main(argv):
             print("\n[anomaly] dừng.")
         return
     print(f"Dùng: python3 anomaly.py --live [eve.json]    (mặc định log {EVE}; model net_if_model.joblib + web_app_if_model.joblib ở thư mục hiện tại)\n"
-          "      python3 anomaly.py --detect [eve.json] [--last N]\n"
+          "      python3 anomaly.py --detect [eve.json] [--last N] [--out F | --to-wazuh]   (mặc định ghi anomaly_detect.jsonl)\n"
           "      Tùy chọn: [--interval N] [--score-q Q | --net-q Q --in-q Q --web-q Q] [--model-net F] [--model-web F]; hoặc EVE_JSON cho đường dẫn log.\n"
           "      Demo: --score-q càng LỚN càng nhạy (nhiều cảnh báo hơn); bỏ trống thì dùng ngưỡng đã chốt trong model.")
 
