@@ -12,6 +12,12 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Cảnh báo được đẩy vào Wazuh, phân loại theo bộ rule riêng, gửi Telegram và có thể chặn nguồn qua Active Response.
 
+## Luồng dữ liệu
+
+Hệ thống chạy theo hai giai đoạn. Ở giai đoạn huấn luyện ngoại tuyến, hai notebook học trên dữ liệu hợp lệ, chọn ngưỡng và xuất hai tệp mô hình. Ở giai đoạn phát hiện trực tuyến, `anomaly.py` nạp hai tệp này, đọc `eve.json` của Suricata_IDS, chấm điểm và ghi cảnh báo kèm các đặc trưng lệch nhiều nhất để Wazuh thu nhận.
+
+![Luồng dữ liệu của nhánh phát hiện bất thường](docs/luong_du_lieu.png)
+
 ## Kết quả trên tập kiểm thử
 
 Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng của mỗi mô hình được chọn trên tập kiểm định sao cho FPR không vượt 0,2%; tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
@@ -55,11 +61,17 @@ Mỗi giá trị tham số do đúng một mô hình chấm: query GET và trư�
 - Isolation Forest tự cài xếp hạng gần như trùng scikit-learn (tương quan Spearman 0,981 đến 0,994).
 - `anomaly.py` chấm lại toàn bộ tập kiểm thử và cho cùng quyết định với bản scikit-learn trong notebook.
 
+## Xử lý cảnh báo trên Wazuh
+
+Wazuh ghi nhận mỗi cảnh báo ở mức 10 và nâng lên mức 12 khi điểm cao. Khi cùng một nguồn có từ 5 cảnh báo trong 300 giây, cảnh báo lên mức 13; từ 10 cảnh báo trong 600 giây thì lên mức 15. Rule mức 15 gửi thẻ CRITICAL và kích hoạt Active Response chặn IP nguồn tại Suricata_IPS trong 15 giây. Bộ rule và cách cài đặt nằm trong [`wazuh/README_wazuh.md`](wazuh/README_wazuh.md).
+
+![Trình tự cảnh báo, nâng mức và chặn nguồn](docs/luong_canh_bao.png)
+
 ## Thực nghiệm trên hệ thống triển khai
 
-Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Kết quả theo từng kịch bản tấn công (Chương 4 của báo cáo) sẽ cập nhật sau. Hình dưới là ví dụ thẻ cảnh báo mà nhánh bất thường gửi qua Telegram, kèm kỹ thuật MITRE ATT&CK và các biện pháp phòng ngừa.
+Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Kết quả theo từng kịch bản tấn công (Chương 4 của báo cáo) sẽ cập nhật sau. Hình dưới là thẻ cảnh báo mức 15 nhận được khi thử SQL Injection vào DVWA, kèm kỹ thuật MITRE ATT&CK và các biện pháp phòng ngừa.
 
-![Ví dụ thẻ cảnh báo gửi qua Telegram](docs/the_canh_bao_telegram.png)
+![Thẻ cảnh báo mức 15 gửi qua Telegram](docs/the_canh_bao_telegram.png)
 
 ## Hạ tầng thực nghiệm
 
