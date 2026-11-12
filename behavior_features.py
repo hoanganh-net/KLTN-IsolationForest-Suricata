@@ -1,18 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-behavior_features.py: cửa sổ cặp máy, đặc trưng hành vi, huấn luyện tham chiếu, chọn ngưỡng và các phép đếm
-cảnh báo của Behavior-IF (bản ghi flow của Suricata).
-
-Notebook KLTN_BehaviorIF.ipynb nạp module này; notebook chỉ còn cấu hình, nạp dữ liệu, gọi hàm, in bảng,
-vẽ hình và xuất mô hình cho anomaly.py.
-
-Module không giữ trạng thái. Những gì học từ dữ liệu được notebook giữ và truyền vào hàm qua tham số:
-  rar_counts, rar_total  bảng độ hiếm dịch vụ đếm trên tập huấn luyện của cả hai chiều;
-  ref   một tham chiếu bình thường do fit_ref() trả về; refs = {"out": ..., "in": ...} cho hai chiều;
-  sel   ngưỡng đã chọn của từng chiều {"out": {...}, "in": {...}}, mỗi phần do chon_nguong() trả về.
-
-anomaly.py có bản trích đặc trưng riêng, tính theo cùng công thức (Phụ lục B của báo cáo); phép thử khớp
-quyết định giữa anomaly.py và notebook kiểm điều này.
+behavior_features.py: cửa sổ cặp máy, đặc trưng hành vi, huấn luyện tham chiếu, chọn ngưỡng và đếm cảnh báo của Behavior-IF.
+Module không giữ trạng thái: bảng độ hiếm (rar_counts, rar_total), tham chiếu (ref, refs), ngưỡng (sel) do notebook truyền vào.
 """
 
 import math
@@ -23,9 +12,7 @@ from sklearn.ensemble import IsolationForest as SkIF
 
 from isolationforest import IsolationForest
 
-# ---------------------------------------------------------------------------------------------------------
 # 1. Đọc bản ghi flow
-# ---------------------------------------------------------------------------------------------------------
 COLS = ["start", "end", "src", "dst", "dport", "proto", "bytes_toserver", "bytes_toclient",
         "tcp_state", "direction", "peer_zone"]
 DT = {"proto": str, "tcp_state": str}
@@ -37,9 +24,7 @@ def epoch(s):
     return (pd.to_datetime(s, format="ISO8601", utc=True) - EPOCH0).dt.total_seconds().values
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 2. Độ hiếm dịch vụ
-# ---------------------------------------------------------------------------------------------------------
 def svc_keys(d):
     """Khóa dịch vụ: chiều|vùng đầu kia|giao thức|cổng."""
     return d["direction"] + "|" + d["peer_zone"] + "|" + d["proto"].str.upper() + "|" + d["dport"].astype(str)
@@ -57,9 +42,7 @@ def rar_of(d, rar_counts, rar_total):
     return keys.map(table).to_numpy(float)
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 3. Cửa sổ cặp máy và đặc trưng hành vi
-# ---------------------------------------------------------------------------------------------------------
 WINDOW_MIN, WINDOW_HOP_MIN = 30, 15
 INCOMPLETE = {"syn_sent", "syn_recv"}
 FEATS = ["log_n_conn", "sqrt_mb_out", "log_bytes_in", "frac_out", "log_throughput",
@@ -140,9 +123,7 @@ def windows(d, rar_counts, rar_total):
     return pd.concat([K, F], axis=1)
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 4. Huấn luyện tham chiếu và chấm điểm
-# ---------------------------------------------------------------------------------------------------------
 def fit_ref(X, n_trees, max_samples, seed):
     """Học một tham chiếu trên X (đủ 11 cột); rừng chỉ nhận các cột FEATS_IF đã chuẩn hóa."""
     mu = X.mean(0)
@@ -165,9 +146,7 @@ def score(ref, X, which="own"):
     return -ref["sk"].score_samples(Z)
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 5. Chọn ngưỡng trên tập kiểm định
-# ---------------------------------------------------------------------------------------------------------
 def canh_bao(K, mask):
     """Số cảnh báo: mỗi (bên khởi tạo, bên nhận, khung 30 phút) có cửa sổ bị gắn cờ tính một lần."""
     k = K[np.asarray(mask, bool)]
@@ -176,9 +155,7 @@ def canh_bao(K, mask):
 
 
 def chon_nguong(ref, V, q_grid, fpr_max):
-    """Thử từng SCORE_Q trong lưới trên cửa sổ kiểm định V của một chiều; ngưỡng là phân vị (1 - SCORE_Q) của
-    điểm huấn luyện. SCORE_Q được chọn là giá trị lớn nhất có FPR kiểm định không vượt fpr_max.
-    Trả về (bảng lưới, {"q", "thr", "thr_sk"}, số giờ của tập kiểm định); phần thứ hai là None nếu không nấc nào đạt."""
+    """Bảng lưới SCORE_Q, ngưỡng chọn được (None nếu không nấc nào đạt fpr_max) và số giờ kiểm định."""
     s_val = score(ref, V[FEATS].values)
     gio = (V["t0"].max() - V["t0"].min()) / 3600
     rows = []
@@ -196,9 +173,7 @@ def chon_nguong(ref, V, q_grid, fpr_max):
                "thr_sk": float(np.quantile(ref["s_sk"], 1 - q))}, gio
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 6. Kiểm thử
-# ---------------------------------------------------------------------------------------------------------
 def cham(XF, refs, sel, rar_counts, rar_total, dirs=("out", "in")):
     """Gom cửa sổ, chấm bằng tham chiếu của từng chiều và so với ngưỡng."""
     WT = pd.concat([windows(XF[XF["direction"] == d], rar_counts, rar_total) for d in dirs], ignore_index=True)
@@ -215,7 +190,7 @@ def cham(XF, refs, sel, rar_counts, rar_total, dirs=("out", "in")):
 
 
 def bang_ket_qua(WT, runs):
-    """Recall theo hành vi, tính theo cửa sổ và theo lượt; runs là bảng lượt tấn công (flow_runs.csv)."""
+    """Recall theo hành vi, tính theo cửa sổ và theo lượt."""
     hit = {r for rs in WT.loc[WT["pred"], "runs"] for r in rs.split("|") if r}
     R = runs.assign(phat_hien=runs["run_id"].isin(hit))
     hanh_vi = dict(zip(runs["run_id"], runs["behavior"]))
@@ -230,14 +205,45 @@ def bang_ket_qua(WT, runs):
     return B.astype({"cua_so": int, "cua_so_bat": int, "luot": int, "luot_bat": int}), R
 
 
-# ---------------------------------------------------------------------------------------------------------
-# 7. Mật độ cảnh báo theo máy (đối chiếu điều kiện của rule tương quan trên Wazuh)
-# ---------------------------------------------------------------------------------------------------------
-def canh_bao_may(Wx):
-    """Mỗi (máy nguồn, đích, khung 30 phút) có cửa sổ vượt ngưỡng là một cảnh báo, tại t0 của cửa sổ sớm nhất."""
-    f = Wx[Wx["pred"]].sort_values("t0", kind="stable")
-    f = f.assign(o=(f["t0"] // (WINDOW_MIN * 60)).astype("int64"))
-    return f.drop_duplicates(subset=["src", "dst", "o"])
+# 7. Mật độ cảnh báo theo máy, đếm như anomaly.py phát cảnh báo
+FLOW_DELAY_S = 360                                  # chấm cửa sổ khi đã đóng thêm 6 phút
+EPISODE_QUIET_S, EPISODE_REMIND_S = 120 * 60, 360 * 60
+
+
+def muc_uu_tien(Wx, ref, thr):
+    """Đặc trưng lệch nhất (|z| > 1) và mức ưu tiên High/Medium của từng cửa sổ."""
+    X = Wx[FEATS].values
+    z = np.clip((X - ref["med"]) / np.where(ref["scale"] < 1e-9, 1.0, ref["scale"]), -50, 50)
+    top = np.where(np.abs(z).max(1) > 1, np.array(FEATS)[np.argmax(np.abs(z), 1)], "")
+    sev = np.where((Wx["score"] - thr) / (1 - thr) >= 0.15, "high", "medium")
+    return Wx.assign(top=top, sev=sev)
+
+
+def canh_bao_may(Wx, may="src"):
+    """Cảnh báo phát cho các cửa sổ bị gắn cờ: khóa (máy, đích, bucket), gom theo sự cố của cặp máy;
+    cột t_cb là thời điểm phát (cửa sổ đóng cộng FLOW_DELAY_S)."""
+    f = Wx[Wx["pred"]].copy()
+    f["ws"] = f["bucket"] * WINDOW_MIN * 60 + f["off"]
+    f = f.sort_values(["ws", "off"], kind="stable").drop_duplicates(subset=[may, "dst", "bucket"])
+    su_co, giu = {}, []
+    for r in f.itertuples():
+        cap, t = (getattr(r, may), r.dst), r.ws
+        e = su_co.get(cap)
+        if e is None or t - e["last"] > EPISODE_QUIET_S:          # mở sự cố mới
+            su_co[cap] = {"last": t, "emit": t, "sev": r.sev, "tops": {r.top}}
+            giu.append(True)
+            continue
+        e["last"] = max(e["last"], t)
+        bao = ((r.sev == "high" and e["sev"] != "high") or (r.top and r.top not in e["tops"])
+               or t - e["emit"] >= EPISODE_REMIND_S)
+        e["tops"].add(r.top)
+        if r.sev == "high":
+            e["sev"] = "high"
+        if bao:
+            e["emit"] = t
+        giu.append(bao)
+    f = f[np.array(giu, bool)]
+    return f.assign(t_cb=f["ws"] + WINDOW_MIN * 60 + FLOW_DELAY_S)
 
 
 def nhieu_nhat(t, w):

@@ -168,7 +168,7 @@ WEB = {   # khóa: nhãn nghi ngờ
     "sqli": "Tiêm mã SQL (SQLi)",
     "xss":  "Tiêm mã kịch bản (XSS)",
     "cmdi": "Tiêm lệnh hệ thống",
-    "inj":  "Tiêm mã (SQL, lệnh hoặc lùi thư mục)",
+    "inj":  "Tiêm mã (SQL, XSS, lệnh hoặc lùi thư mục)",   # n_kw, n_paren gặp ở cả SQL, JavaScript và lệnh hệ thống
     "web":  "Giá trị tham số bất thường",
 }
 WEB_TECH = "T1190"

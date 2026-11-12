@@ -52,12 +52,12 @@ Mỗi giá trị tham số do đúng một mô hình chấm: query GET và trư�
 
 ### Kiểm chứng
 
-- Isolation Forest tự cài xếp hạng gần như trùng scikit-learn (tương quan Spearman 0,982 đến 0,994).
+- Isolation Forest tự cài xếp hạng gần như trùng scikit-learn (tương quan Spearman 0,981 đến 0,994).
 - `anomaly.py` chấm lại toàn bộ tập kiểm thử và cho cùng quyết định với bản scikit-learn trong notebook.
 
 ## Thực nghiệm trên hệ thống triển khai
 
-Kết quả chạy các kịch bản tấn công trực tiếp trên hệ thống đã triển khai (Chương 4 của báo cáo) sẽ được cập nhật sau. Hình dưới là ví dụ thẻ cảnh báo mà nhánh bất thường gửi qua Telegram, kèm kỹ thuật MITRE ATT&CK và các biện pháp phòng ngừa.
+Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Kết quả theo từng kịch bản tấn công (Chương 4 của báo cáo) sẽ cập nhật sau. Hình dưới là ví dụ thẻ cảnh báo mà nhánh bất thường gửi qua Telegram, kèm kỹ thuật MITRE ATT&CK và các biện pháp phòng ngừa.
 
 ![Ví dụ thẻ cảnh báo gửi qua Telegram](docs/the_canh_bao_telegram.png)
 
@@ -79,7 +79,9 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Chạy lại
 
-Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên bản dùng khi chốt số liệu (numpy 2.5.3, scikit-learn 1.9.1) cùng pandas, scipy, matplotlib, joblib và gdown; khác phiên bản thì cây có thể khác đôi chút. Dữ liệu không đi kèm kho: chép các tệp CSV vào `data/`, hoặc điền `DRIVE_URL` trong ô cấu hình để notebook tự tải thư mục dữ liệu từ Google Drive.
+Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên bản dùng khi chốt số liệu (numpy 2.5.3, scikit-learn 1.9.1, pandas 3.0.5) cùng scipy, matplotlib, joblib và gdown; khác phiên bản thì cây có thể khác đôi chút.
+
+Dữ liệu không đi kèm kho mà nằm trong [thư mục Google Drive của đề tài](https://drive.google.com/drive/folders/1QlMZ7_I7ul-gV1yF_Wk-3d1iKvw4RVLd), chỉ chia sẻ đích danh cho người đánh giá vì có các dòng lấy từ HTTP Dataset CSIC 2010, ECML/PKDD 2007 và CTU-13 (xem `data/README.md`). Người được cấp quyền tải các tệp CSV về rồi chép vào `data/`. Liên kết này cũng ghi trong `DRIVE_URL` ở ô cấu hình của hai notebook; khi thiếu dữ liệu, notebook thử tải bằng gdown, nhưng gdown không đăng nhập Google nên chỉ tải được khi thư mục cho phép truy cập theo liên kết.
 
 ```
 python -m venv .venv

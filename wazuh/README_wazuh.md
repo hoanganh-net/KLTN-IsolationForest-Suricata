@@ -11,8 +11,7 @@ anomaly.py (host IDS)                 Wazuh agent (IDS)        Wazuh manager
   --live eve.json                       localfile json          decoder json + anomaly_rules.xml
   → anomaly_alerts.jsonl   ── tail ──▶  tách field  ── gửi ──▶  100300-100312 → leo thang mức
                                                                    ├─ 100305/100306/100311 → Telegram (bot anomaly)
-                                                                   └─ 100312 (mức 15) → Active Response: suricata-drop @IPS
-                                                                                        + Telegram "đã chặn"
+                                                                   └─ 100312 (mức 15) → Active Response: suricata-drop @IPS + Telegram "đã chặn"
 ```
 
 ## Thang leo mức (anomaly_rules.xml)
@@ -23,16 +22,21 @@ anomaly.py (host IDS)                 Wazuh agent (IDS)        Wazuh manager
 | 100301 | `module` = `anomaly_if` | 10 | Hành vi mạng bất thường (cả hai chiều) |
 | 100302 | `module` = `anomaly_web` | 10 | Giá trị tham số bất thường (tham số truy vấn hoặc trường ngắn của thân POST) |
 | 100303 | `module` = `anomaly_web_body` | 10 | Văn bản tự do của thân POST bất thường |
-| 100304 | 100301/2/3 + `severity` = `high` | 12 | Một sự kiện điểm cao |
+| 100304 | 100300 + `severity` = `high` | 12 | Một sự kiện điểm cao |
 | 100305 | 100304, báo lần đầu (ignore 300 giây) | 12 | Gửi Telegram |
 | 100306 | 100302/100303, báo cảnh báo web (ignore 300 giây) | 10 | Gửi Telegram |
 | 100311 | ≥5 cảnh báo cùng `srcip` trong 5 phút | 13 | Tái diễn (tần suất) |
-| 100312 | ≥10 cảnh báo cùng `srcip` trong 10 phút | **15** | **CRITICAL → Active Response** |
+| 100312 | ≥10 cảnh báo cùng `srcip` trong 10 phút, không có ignore | **15** | **Kích hoạt Active Response** và gửi thẻ CRITICAL lên Telegram (mỗi lần kích hoạt một thẻ) |
 | 100320 | Con của rule Suricata 86601, `alert.signature` = `KLTN POST body capture` | 0 | Ẩn cảnh báo của rule thu thân POST |
 
 Logic: điểm cao (severity) đẩy mức lên 12; tái diễn cùng nguồn (tần suất) lên 13; tái diễn dai dẳng
 lên 15. Nhóm `anomaly_event` chỉ gắn cho rule phát hiện (100301–100304) nên hai rule leo thang không tự
-đếm lại chính mình. Tương quan theo `srcip` qua `<same_source_ip />`.
+đếm lại chính mình. Tương quan theo `srcip` qua `<same_source_ip />`. Rule 100304 là con trực tiếp của 100300
+chứ không của 100301/2/3: trên Wazuh 4.12, rule có nhiều rule cha nằm ở nhiều vị trí trên cây rule và mỗi vị trí
+ghi cảnh báo thêm một lần vào danh sách đếm của 100311/100312, nên với ba rule cha mỗi cảnh báo điểm cao bị đếm
+ba lần (lượt chạy ngày 12/11: 100312 kích hoạt 8 lần trên 32 cảnh báo `anomaly_event`). Mức 12 cao hơn 10 nên
+Wazuh xét 100304 trước 100301-100303. Mô phỏng thuật toán đếm của Wazuh (`Search_LastGroups`) trên danh sách cảnh báo của hai lượt chạy ngày 12/11
+khớp mọi lần kích hoạt 100311 và 100312: lượt trước khi sửa khi đếm 100304 ba lần, lượt sau khi sửa khi đếm một lần.
 
 Behavior-IF là một mô-đun cho cả hai chiều: anomaly.py chấm mỗi cửa sổ bằng tham chiếu bình thường ứng với bên khởi
 tạo (máy nạn nhân hoặc máy bên ngoài), còn cảnh báo của hai chiều đi chung một chuỗi rule. `srcip` luôn là bên khởi tạo
@@ -152,6 +156,8 @@ Rule 100312 (mức 15) kích hoạt `suricata-drop` (khai trong `<command>` củ
 tuyến, chặn `srcip` tại đó cắt được luồng của nguồn. `timeout` đặt mức chặn tạm thời; hết timeout
 Wazuh tự gỡ chặn, cảnh báo đã gửi để người trực xử lý dứt điểm.
 
+100312 không có `ignore` để khi lần chặn trước hết hạn mà nguồn vẫn tấn công thì Active Response chặn lại được. Mỗi lần kích hoạt cũng gửi một thẻ CRITICAL, nên khi nguồn tấn công kéo dài, thẻ mức 15 ra theo nhịp chặn (lượt chạy chiều 12/11, sau khi sửa 100304: mỗi lần kích hoạt sau đúng 10 cảnh báo được đếm, khoảng 2,5-3 phút một lần với nhịp của script tấn công). Cách giới hạn thẻ bằng một rule con có `ignore="300"` đã thử và bỏ: trên Wazuh 4.12, cảnh báo vẫn mang mã 100312 kèm nhóm của rule con ở mọi lần kích hoạt, nên `ignore` của rule con không giới hạn được số thẻ.
+
 Với cảnh báo hành vi do máy nạn nhân khởi tạo (`direction` = `out`), `srcip` là host nội bộ nghi bị chiếm quyền → chặn tại IPS tương
 đương cô lập tạm host đó. Với cảnh báo hành vi do bên ngoài khởi tạo (`direction` = `in`) và cảnh báo web,
 `srcip` là nguồn bên ngoài → chặn nguồn.
@@ -163,5 +169,6 @@ Với cảnh báo hành vi do máy nạn nhân khởi tạo (`direction` = `out`
 - Sau khi thêm `<group>suricata</group>` vào `custom-telegram`, kênh này chỉ còn nhận cảnh báo nhóm
   Suricata; nếu trước đây muốn nó gửi cả cảnh báo khác (vuln/SCA...) thì cân nhắc lại filter.
 - Quyền đọc `/var/log/suricata-anomaly/` nếu host bật SELinux/AppArmor.
-- Thử một chuỗi tấn công lặp để xác nhận 100312 bắn và suricata-drop thật sự chặn nguồn trên IPS
-  (`sudo cat /var/ossec/logs/active-responses.log` trên agent IPS).
+- Chuỗi tấn công lặp ngày 12/11/2026 đã xác nhận mỗi lần 100312 kích hoạt có một thẻ CRITICAL, suricata-drop chặn nguồn
+  trên IPS rồi tự gỡ khi hết hạn. Khi đổi hạ tầng, chạy lại phép thử này và đối chiếu
+  `sudo cat /var/ossec/logs/active-responses.log` trên agent IPS.

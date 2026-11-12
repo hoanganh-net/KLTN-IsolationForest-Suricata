@@ -11,7 +11,7 @@ Thư mục này là bộ dữ liệu dùng để chạy hai notebook `KLTN_Behav
 | `flow_runs.csv` | Nhãn lượt tấn công của tập kiểm thử Behavior-IF | 0,1 MB |
 | `web_get_train.csv`, `web_get_test.csv` | Web-App IF, GET | 12 MB, 8,5 MB |
 | `web_post_train.csv`, `web_post_test.csv` | Web-App IF, POST | 22 MB, 22 MB |
-| `DATASET_CARD.md` | Mô tả nguồn gốc, cách dựng, nhãn, cách chia tập, giới hạn (bản sao từ thư mục `Dataset`) | |
+| `DATASET_CARD.md` | Mô tả nguồn gốc, cách dựng, nhãn, cách chia tập và giới hạn | |
 | `SHA256SUMS.txt` | Mã băm SHA-256 để kiểm tra tệp sau khi tải | |
 
 Kiểm tra sau khi tải (Linux): `sha256sum -c SHA256SUMS.txt --ignore-missing`. Trên Windows: `certutil -hashfile <tệp> SHA256` rồi so với dòng tương ứng.

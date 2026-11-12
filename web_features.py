@@ -1,20 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-web_features.py: đơn vị phân tích, đặc trưng từ vựng, kiểm tra miền, huấn luyện và chọn ngưỡng của Web-App IF
-(Web-Query IF chấm query string và trường ngắn của POST, Web-Body IF chấm văn bản tự do của POST).
-
-Notebook KLTN_WebAppIF.ipynb nạp module này; notebook chỉ còn cấu hình, nạp dữ liệu, gọi hàm, in bảng,
-vẽ hình và xuất mô hình cho anomaly.py.
-
-Module không giữ trạng thái. Những gì học từ dữ liệu được notebook giữ và truyền vào hàm qua tham số:
-  td   tri thức của bước tách đơn vị, học trên tập huấn luyện:
-       {"known_paths": đường dẫn trơn đã thấy, "known_values": giá trị đã biết của trường ngắn POST,
-        "hang_q": chỉ số đặc trưng hằng của Web-Query IF, "gt_hang_q": giá trị hằng tương ứng};
-  mod  hai mô hình {"q": Web-Query IF, "b": Web-Body IF}, mỗi mô hình do fit_model() trả về;
-  sel  ngưỡng đã chọn {"q": {...}, "b": {...}}, mỗi phần do chon_nguong() trả về.
-
-anomaly.py có bản trích đặc trưng riêng, tính theo cùng công thức (Phụ lục B của báo cáo); phép thử khớp
-quyết định giữa anomaly.py và notebook kiểm điều này.
+web_features.py: tách đơn vị, đặc trưng từ vựng, kiểm tra miền, huấn luyện và chọn ngưỡng của Web-App IF.
+Module không giữ trạng thái: td (tri thức học từ tập huấn luyện), mod (hai mô hình), sel (ngưỡng) do notebook truyền vào.
 """
 
 import collections
@@ -29,9 +16,7 @@ from sklearn.ensemble import IsolationForest as SkIF
 
 from isolationforest import IsolationForest
 
-# ---------------------------------------------------------------------------------------------------------
 # 1. Đặc trưng từ vựng của một đơn vị (chuỗi)
-# ---------------------------------------------------------------------------------------------------------
 FEATS = ["log_len", "r_nonalnum", "r_digit", "r_upper", "entropy", "n_squote", "n_dquote",
          "n_angle", "n_paren", "n_punct_inj", "n_kw", "n_pct", "max_run_sym"]
 # Rừng học trên 11 cột; n_angle và n_pct chỉ dùng để diễn giải và kiểm tra miền
@@ -80,7 +65,7 @@ def feature_vector(s):
             float(len(_KW.findall(s))), float(len(_PCT.findall(s))), float(_max_run_symbol(s))]
 
 
-_cache = {}      # bộ nhớ đệm đặc trưng theo chuỗi; chỉ để chạy nhanh, không ảnh hưởng kết quả
+_cache = {}      # đệm đặc trưng theo chuỗi
 
 
 def fv(u):
@@ -94,13 +79,11 @@ def ma_tran(units):
     return np.array([fv(u) for u in units], float).reshape(len(units), len(FEATS))
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 2. Tách giá trị tham số thành đơn vị
-# ---------------------------------------------------------------------------------------------------------
 FREE_FIELDS = {"your-message", "content", "comment", "your-subject", "title", "message", "body", "mtxMessage"}
 
 _TAG = re.compile(r"</?[a-zA-Z][^<>]{0,300}>|\bon[a-zA-Z]{2,}\s*=\s*\S+", re.IGNORECASE)
-TAG_PATTERN = _TAG.pattern       # anomaly.py dùng lại mẫu này (lưu trong tệp mô hình)
+TAG_PATTERN = _TAG.pattern       # lưu vào tệp mô hình cho anomaly.py
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]+(?::\d{1,5})?$")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9/_\-.]*$")
@@ -212,19 +195,17 @@ def don_vi(field, value, method, td):
     return "q", [("q", u) for u in expand_value(value, td["known_paths"])]
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 3. Tri thức học từ tập huấn luyện
-# ---------------------------------------------------------------------------------------------------------
 ENUM_MAX, ENUM_MIN = 10, 100     # trường ngắn có không quá 10 giá trị và xuất hiện ít nhất 100 lần
 
 
 def duong_dan_da_biet(train_G):
-    """Các đường dẫn trơn đã thấy trong giá trị GET huấn luyện; giá trị trùng một đường dẫn này không được chấm."""
+    """Đường dẫn trơn đã thấy trong giá trị GET huấn luyện (không chấm)."""
     return sorted({v for v in train_G["value"] if is_plain_path(v)})
 
 
 def gia_tri_da_biet(train_P, enum_max=ENUM_MAX, enum_min=ENUM_MIN):
-    """Trường ngắn POST có tập giá trị nhỏ và ổn định: {trường: tập giá trị}; giá trị đã biết không được chấm."""
+    """Trường ngắn POST có tập giá trị nhỏ và ổn định: {trường: tập giá trị} (không chấm)."""
     ngan = train_P[~train_P["field"].isin(FREE_FIELDS)]
     thong_ke = ngan.groupby("field")["value"].agg(["nunique", "size"])
     it_gia_tri = thong_ke.index[(thong_ke["nunique"] <= enum_max) & (thong_ke["size"] >= enum_min)]
@@ -239,15 +220,13 @@ def don_vi_huan_luyen(train_G, train_P, known_paths):
 
 
 def dac_trung_hang(Xq, bat=True):
-    """Đặc trưng hằng của Web-Query IF trên tập huấn luyện và giá trị hằng đó (đầu vào của kiểm tra miền)."""
+    """Đặc trưng hằng của Web-Query IF trên tập huấn luyện và giá trị hằng (cho kiểm tra miền)."""
     hang = [j for j in range(len(FEATS)) if np.ptp(Xq[:, j]) == 0] if bat else []
     gia_tri = Xq[0, hang] if hang else np.empty(0)
     return hang, gia_tri
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 4. Kiểm tra miền
-# ---------------------------------------------------------------------------------------------------------
 def ngoai_mien(X, td):
     """Đơn vị có đặc trưng hằng (ở tập huấn luyện Web-Query) khác giá trị hằng đó."""
     X = np.asarray(X, float).reshape(-1, len(FEATS))
@@ -261,11 +240,9 @@ def kiem_mien(field, value, method, td):
     return bool(td["hang_q"]) and not (method == "POST" and is_free(field, value))
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 5. Chia dữ liệu
-# ---------------------------------------------------------------------------------------------------------
 def chia(df, train_frac, seed, pub_sources):
-    """Gán 'train' hoặc 'val' cho từng dòng: dữ liệu WordPress chia theo thời gian, nguồn khác chia ngẫu nhiên."""
+    """Gán 'train' hoặc 'val' cho từng dòng."""
     part = pd.Series("train", index=df.index)
     real = df["source"] == "real_wp"
     t = pd.to_datetime(df.loc[real, "ts"], format="ISO8601")
@@ -284,9 +261,7 @@ def mien(df, pub_sources):
     return np.where(df["source"].isin(pub_sources), "CSIC", "lab")
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 6. Huấn luyện và chấm điểm
-# ---------------------------------------------------------------------------------------------------------
 def fit_model(X, idx, n_trees, max_samples, seed):
     """Học một mô hình trên X (đủ 13 cột); rừng chỉ nhận các cột idx đã chuẩn hóa."""
     mu = X.mean(0)
@@ -385,13 +360,9 @@ def don_vi_noi_bat(rows, method, mod, td, sel):
     return max(out)
 
 
-# ---------------------------------------------------------------------------------------------------------
 # 7. Chọn ngưỡng trên tập kiểm định
-# ---------------------------------------------------------------------------------------------------------
 def chon_nguong(model, s_val, d_val, q_grid, fpr_max, truong_ngan=None):
-    """Thử từng SCORE_Q trong lưới; ngưỡng là phân vị (1 - SCORE_Q) của điểm huấn luyện. SCORE_Q được chọn là
-    giá trị lớn nhất có FPR kiểm định không vượt fpr_max ở mọi miền (lab, CSIC) có trong d_val.
-    Trả về (bảng lưới, {"q", "thr", "thr_sk"}); phần thứ hai là None nếu không nấc nào đạt."""
+    """Bảng lưới SCORE_Q và ngưỡng chọn được; None nếu không nấc nào đạt fpr_max ở mọi miền."""
     cac_mien = sorted(set(d_val))
     rows = []
     for q in q_grid:

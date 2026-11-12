@@ -4,10 +4,13 @@
   Telegram:
     - custom-telegram        loc <group>suricata</group>       -> nhanh signature
     - custom-telegram-anomaly loc <group>anomaly_notify</group> -> chi canh bao DANG BAO
-      (100305 diem cao lan dau, 100311 tai dien, 100312 CRITICAL). Base 100301/302/303/304
+      (100305 diem cao lan dau, 100306 web, 100311 tai dien, 100312 CRITICAL). Base 100301/302/303/304
       KHONG mang anomaly_notify nen fire ngam de DEM ma khong lam ngap Telegram.
   Thang leo muc: 10 (phat hien) -> 12 (diem cao) -> 13 (tai dien) -> 15 (CRITICAL -> Active Response).
-  AR = suricata-drop (luat drop inline Suricata) tren agent 003. Rule BAO co ignore=300s.
+  AR = suricata-drop (luat drop inline Suricata) tren agent 003. Rule BAO 100305, 100306, 100311 co ignore=300s.
+  100312 KHONG ignore: nguon con tan cong sau khi lan chan truoc het han thi AR chan lai, moi lan kich hoat
+  kem mot the CRITICAL (chot 12/11). Khong dung rule con co ignore de gioi han the: tren Wazuh 4.12 canh bao
+  van mang ma 100312 kem nhom cua rule con o moi lan kich hoat (thu ngay 12/11).
 -->
 <group name="anomaly,ids,">
 
@@ -37,8 +40,12 @@
     <group>anomaly_event,anomaly_web,</group>
   </rule>
 
+  <!-- 100304 la con TRUC TIEP cua 100300, khong dat duoi 100301/302/303: rule co nhieu rule cha nam o nhieu
+       vi tri tren cay rule, va Wazuh 4.12 ghi canh bao vao danh sach dem cua 100311/100312 mot lan cho moi
+       vi tri, nen voi 3 rule cha moi canh bao diem cao bi dem 3 lan (phat hien qua luot chay ngay 12/11).
+       Muc 12 cao hon 10 nen Wazuh xet 100304 truoc 100301-100303. -->
   <rule id="100304" level="12">
-    <if_sid>100301,100302,100303</if_sid>
+    <if_sid>100300</if_sid>
     <field name="severity">high</field>
     <description>Anomaly - Bat thuong diem cao ($(module)): $(srcip), vi $(why)</description>
     <group>anomaly_event,anomaly_high,</group>
@@ -66,6 +73,7 @@
     <group>anomaly_escalation,anomaly_notify,</group>
   </rule>
 
+  <!-- 100312 | KICH HOAT AR va BAO CRITICAL; khong ignore de chan lai duoc khi lan chan truoc het han -->
   <rule id="100312" level="15" frequency="10" timeframe="600">
     <if_matched_group>anomaly_event</if_matched_group>
     <same_source_ip />
