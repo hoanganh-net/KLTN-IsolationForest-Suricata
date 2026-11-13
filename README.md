@@ -93,8 +93,6 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên bản dùng khi chốt số liệu (numpy 2.5.3, scikit-learn 1.9.1, pandas 3.0.5) cùng scipy, matplotlib, joblib và gdown; khác phiên bản thì cây có thể khác đôi chút.
 
-Dữ liệu không đi kèm kho mà nằm trong [thư mục Google Drive của đề tài](https://drive.google.com/drive/folders/1QlMZ7_I7ul-gV1yF_Wk-3d1iKvw4RVLd), chỉ chia sẻ đích danh cho người đánh giá vì có các dòng lấy từ HTTP Dataset CSIC 2010, ECML/PKDD 2007 và CTU-13 (xem `data/README.md`). Người được cấp quyền tải các tệp CSV về rồi chép vào `data/`. Liên kết này cũng ghi trong `DRIVE_URL` ở ô cấu hình của hai notebook; khi thiếu dữ liệu, notebook thử tải bằng gdown, nhưng gdown không đăng nhập Google nên chỉ tải được khi thư mục cho phép truy cập theo liên kết.
-
 ```
 python -m venv .venv
 .venv\Scripts\pip install jupyter

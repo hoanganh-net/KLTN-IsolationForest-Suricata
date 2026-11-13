@@ -18,4 +18,4 @@ Kiểm tra sau khi tải (Linux): `sha256sum -c SHA256SUMS.txt --ignore-missing`
 
 ## Điều kiện sử dụng
 
-Bộ dữ liệu chỉ phục vụ đánh giá khóa luận, không dùng cho mục đích thương mại. Một phần các dòng lấy từ HTTP Dataset CSIC 2010, ECML/PKDD 2007 và CTU-13; ba bộ này không ghi giấy phép phân phối lại, nên thư mục chỉ được chia sẻ cho người đánh giá khóa luận, không mở công khai. Muốn dùng lại các phần đó, hãy tải từ nguồn gốc theo hướng dẫn ở mục 8 của `DATASET_CARD.md`.
+Bộ dữ liệu phục vụ đánh giá khóa luận, không dùng cho mục đích thương mại. Các dòng lấy từ HTTP Dataset CSIC 2010, ECML/PKDD 2007 và CTU-13 thuộc về nhóm tác giả gốc; nguồn và cách tải lại từng bộ ghi ở mục 8 của `DATASET_CARD.md`.
