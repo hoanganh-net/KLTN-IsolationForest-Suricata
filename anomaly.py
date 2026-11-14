@@ -50,6 +50,61 @@ def _in_web_targets(ip):
     except Exception: return False
 
 
+# ######################################################################################
+# ĐO HIỆU NĂNG (TÙY CHỌN). Tắt mặc định; bật bằng biến môi trường ANOMALY_PERF=1.
+# Chỉ GHI THÊM số đo (CPU, RAM, thời gian chấm điểm, số đơn vị đã chấm) ra một tệp RIÊNG
+# (anomaly_perf.jsonl cùng thư mục log cảnh báo); KHÔNG đổi logic phát hiện và KHÔNG ghi
+# vào tệp cảnh báo mà Wazuh đọc. Mọi thao tác đo bọc try/except để lỗi đo không bao giờ
+# làm hỏng luồng phát hiện. Phân tích tệp này cho ra: CPU trung bình, dải RAM (RSS), thời
+# gian chấm điểm trên mỗi đơn vị (Model Inference Time) và số đơn vị chấm mỗi giây (thông lượng).
+# ######################################################################################
+PERF_ON  = os.environ.get("ANOMALY_PERF", "0") not in ("0", "", "false", "False", "no")
+PERF_LOG = os.environ.get("ANOMALY_PERF_LOG", os.path.join(_alert_dir or ".", "anomaly_perf.jsonl"))
+_perf = {"score_s": 0.0, "score_units": 0}
+_perf_lock = threading.Lock()
+
+def _perf_add(**kw):
+    if not PERF_ON: return
+    try:
+        with _perf_lock:
+            for k, v in kw.items(): _perf[k] = _perf.get(k, 0) + v
+    except Exception: pass
+
+def _perf_write(rec):
+    try:
+        rec["time"] = datetime.now().isoformat(timespec="seconds")
+        with open(PERF_LOG, "a") as f: f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception: pass
+
+def _proc_cpu_rss():
+    """CPU giây tích lũy (utime+stime) và RSS (MB) của chính tiến trình, đọc từ /proc; (None, None) nếu không đọc được."""
+    try:
+        f = open("/proc/self/stat").read().split()
+        cpu_s = (int(f[13]) + int(f[14])) / os.sysconf("SC_CLK_TCK")
+        rss_mb = None
+        for l in open("/proc/self/status"):
+            if l.startswith("VmRSS"): rss_mb = int(l.split()[1]) // 1024; break
+        return cpu_s, rss_mb
+    except Exception:
+        return None, None
+
+def _perf_sampler(interval):
+    """Luồng nền: mỗi `interval` giây ghi CPU% (so với mẫu trước), RSS và tổng dồn thời gian/đơn vị chấm điểm."""
+    interval = max(5, int(interval or 30))
+    last_cpu, last_t = _proc_cpu_rss()[0], time.time()
+    _perf_write({"kind": "start", "pid": os.getpid(), "interval_s": interval})
+    while True:
+        time.sleep(interval)
+        cpu_s, rss_mb = _proc_cpu_rss(); now = time.time()
+        rec = {"kind": "sample", "rss_mb": rss_mb}
+        if last_cpu is not None and cpu_s is not None and now > last_t:
+            rec["cpu_percent"] = round(100 * (cpu_s - last_cpu) / (now - last_t), 1)
+        last_cpu, last_t = cpu_s, now
+        with _perf_lock:
+            rec["score_time_s"] = round(_perf["score_s"], 3); rec["score_units"] = _perf["score_units"]
+        _perf_write(rec)
+
+
 # File runtime này TỰ CHỨA (chạy trên máy Suricata, không phụ thuộc folder báo cáo).
 # zscore/explain lặp lại cùng logic với hàm explain trong isolationforest.py (bên notebook); cố ý lặp lại để runtime độc lập.
 def zscore(x, center, scale):
@@ -197,6 +252,11 @@ def _score(m, X):
         return np.empty(0)
     if m.get("idx") is not None:                       # chỉ các cột mô hình đã học (tập con đặc trưng)
         X = X.reshape(len(X), -1)[:, m["idx"]]
+    if PERF_ON:                                        # đo thời gian chấm điểm (không đổi kết quả trả về)
+        _t0 = time.perf_counter()
+        s = -m["iso"].score_samples(zscore(X, m["mu"], m["sd"]))
+        _perf_add(score_s=time.perf_counter() - _t0, score_units=len(X))
+        return s
     return -m["iso"].score_samples(zscore(X, m["mu"], m["sd"]))
 
 
@@ -970,6 +1030,9 @@ def main(argv):
                   "chạy notebook để sinh model trước, hoặc trỏ --model-net/--model-web."); return
         print(f"[anomaly] chạy {len(threads)} engine trên {path} | ghi cảnh báo vào {ALERT_LOG} (Ctrl-C để dừng)")
         for t in threads: t.start()
+        if PERF_ON:
+            threading.Thread(target=_perf_sampler, args=(iv or 30,), daemon=True).start()
+            print(f"[anomaly] đo hiệu năng: BẬT, ghi {PERF_LOG} (mỗi {iv or 30}s)", flush=True)
         try:
             while any(t.is_alive() for t in threads): time.sleep(1)
         except KeyboardInterrupt:
