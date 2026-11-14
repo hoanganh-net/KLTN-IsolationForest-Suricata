@@ -7,8 +7,8 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Đề tài xây dựng nhánh phát hiện bất thường chạy song song với nhánh chữ ký của Suricata, gồm hai mô-đun Isolation Forest học không giám sát trên nhật ký `eve.json`:
 
-- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong cửa sổ 30 phút, cho cả chiều ra và chiều vào.
-- **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS.
+- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong cửa sổ 30 phút, cho cả chiều ra và chiều vào. Mỗi cửa sổ được mô tả bằng 11 đại lượng, nhưng chỉ 8 trong số đó được đưa vào rừng để chấm điểm; 3 đại lượng còn lại (số kết nối, số byte chiều vào, tỉ lệ phiên bắt tay dở) chỉ ghi kèm cảnh báo để diễn giải, không tham gia chấm điểm.
+- **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Mỗi giá trị tham số được mô tả bằng 13 đặc trưng từ vựng, nhưng chỉ 11 được đưa vào rừng; 2 đặc trưng còn lại (số dấu ngoặc nhọn, số dấu phần trăm) chỉ dùng cho bước kiểm tra miền, không tham gia chấm điểm.
 
 Cảnh báo được đẩy vào Wazuh, phân loại theo bộ rule riêng, gửi Telegram và có thể chặn nguồn qua Active Response.
 
@@ -19,11 +19,11 @@ Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên b
 ```
 python -m venv .venv
 .venv\Scripts\pip install jupyter
-.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_WebAppIF.ipynb
 .venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_BehaviorIF.ipynb
+.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_WebAppIF.ipynb
 ```
 
-Hai notebook cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
+Chạy theo thứ tự: `KLTN_BehaviorIF.ipynb` (số 1) trước, vì notebook này tải cả bộ dữ liệu về `data/`; rồi `KLTN_WebAppIF.ipynb` (số 2), notebook này chỉ đọc `data/` chứ không tự tải. Cả hai cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
 
 ## Hạ tầng thực nghiệm
 
@@ -36,6 +36,12 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 Hệ thống chạy theo hai giai đoạn. Ở giai đoạn huấn luyện ngoại tuyến, hai notebook học trên dữ liệu hợp lệ, chọn ngưỡng và xuất hai tệp mô hình. Ở giai đoạn phát hiện trực tuyến, `anomaly.py` nạp hai tệp này, đọc `eve.json` của Suricata_IDS, chấm điểm và ghi cảnh báo kèm các đặc trưng lệch nhiều nhất để Wazuh thu nhận.
 
 ![Luồng dữ liệu của nhánh phát hiện bất thường](docs/luong_du_lieu.png)
+
+## Cửa sổ trượt của Behavior-IF
+
+Behavior-IF không chấm từng bản ghi `flow` riêng lẻ mà gộp lưu lượng của mỗi cặp máy theo cửa sổ thời gian dài 30 phút, trượt mỗi 15 phút. Hai cửa sổ liền kề chồng nhau 15 phút, nên một hành vi nằm vắt qua ranh giới cửa sổ vẫn được chấm trọn trong ít nhất một cửa sổ; cách này giảm nguy cơ bỏ sót so với việc chia cửa sổ không chồng lấn. Mỗi cửa sổ của một cặp máy là một đơn vị phân tích, được mô tả bằng bộ đặc trưng hành vi rồi đưa vào mô hình.
+
+![Cửa sổ trượt 30 phút, bước 15 phút](docs/cua_so_truot.png)
 
 ## Kết quả trên tập kiểm thử
 
