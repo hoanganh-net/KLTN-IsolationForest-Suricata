@@ -12,6 +12,25 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Cảnh báo được đẩy vào Wazuh, phân loại theo bộ rule riêng, gửi Telegram và có thể chặn nguồn qua Active Response.
 
+## Chạy lại
+
+Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên bản dùng khi chốt số liệu (numpy 2.5.3, scikit-learn 1.9.1, pandas 3.0.5) cùng scipy, matplotlib, joblib và gdown; khác phiên bản thì cây có thể khác đôi chút.
+
+```
+python -m venv .venv
+.venv\Scripts\pip install jupyter
+.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_WebAppIF.ipynb
+.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_BehaviorIF.ipynb
+```
+
+Hai notebook cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
+
+## Hạ tầng thực nghiệm
+
+Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng quản trị (VLAN 20). Suricata_IPS đặt nội tuyến, Suricata_IDS nhận bản sao qua SPAN và chạy `anomaly.py`.
+
+![Sơ đồ hạ tầng thực nghiệm](docs/so_do_mang.png)
+
 ## Luồng dữ liệu
 
 Hệ thống chạy theo hai giai đoạn. Ở giai đoạn huấn luyện ngoại tuyến, hai notebook học trên dữ liệu hợp lệ, chọn ngưỡng và xuất hai tệp mô hình. Ở giai đoạn phát hiện trực tuyến, `anomaly.py` nạp hai tệp này, đọc `eve.json` của Suricata_IDS, chấm điểm và ghi cảnh báo kèm các đặc trưng lệch nhiều nhất để Wazuh thu nhận.
@@ -73,12 +92,6 @@ Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy th�
 
 ![Thẻ cảnh báo mức 15 gửi qua Telegram](docs/the_canh_bao_telegram.png)
 
-## Hạ tầng thực nghiệm
-
-Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng quản trị (VLAN 20). Suricata_IPS đặt nội tuyến, Suricata_IDS nhận bản sao qua SPAN và chạy `anomaly.py`.
-
-![Sơ đồ hạ tầng thực nghiệm](docs/so_do_mang.png)
-
 ## Cấu trúc kho
 
 | Thư mục | Nội dung |
@@ -88,16 +101,3 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 | `suricata/` | Rule thu thân POST và cấu hình eve-log trên Suricata_IDS |
 | `docs/` | Hình minh họa trong README; các hình kết quả do hai notebook ghi ra |
 | `data/` | Đặt bộ dữ liệu vào đây (không đi kèm kho, xem `data/README.md`) |
-
-## Chạy lại
-
-Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên bản dùng khi chốt số liệu (numpy 2.5.3, scikit-learn 1.9.1, pandas 3.0.5) cùng scipy, matplotlib, joblib và gdown; khác phiên bản thì cây có thể khác đôi chút.
-
-```
-python -m venv .venv
-.venv\Scripts\pip install jupyter
-.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_WebAppIF.ipynb
-.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_BehaviorIF.ipynb
-```
-
-Hai notebook cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
