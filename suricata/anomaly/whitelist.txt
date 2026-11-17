@@ -1,0 +1,14 @@
+# Danh sách loại trừ của nhánh hành vi (Behavior-IF, cả Tầng 1 và Tầng 2) khi chạy anomaly.py.
+# Đặt cạnh anomaly.py (/opt/ml/whitelist.txt) hoặc trỏ bằng ANOMALY_WHITELIST. Mỗi dòng một địa chỉ IP hoặc dải CIDR,
+# phần sau dấu # là ghi chú. Luồng có đầu bên kia vùng nạn nhân thuộc danh sách bị bỏ trước khi gom cửa sổ.
+# Không ảnh hưởng nhánh web và không dùng trong notebook. Sửa xong: sudo systemctl restart anomaly-ids
+# Chỉ thêm đích đã xác định rõ là dịch vụ hợp lệ (tên TLS/DNS) và ghi lý do: mỗi mục là một vùng mù của nhánh hành vi.
+
+# edge.microsoft.com (DNS ax-0002.ax-msedge.net): dịch vụ của trình duyệt Edge trên hai máy Windows sinh lưu lượng nền.
+# Chiếm 68% cảnh báo nhầm Tầng 1 chiều ra trên tập kiểm định và 70% trên tập kiểm thử (kiểm 15/11/2026).
+# Địa chỉ của Microsoft có thể đổi: khi thẻ cảnh báo Edge quay lại, tra lại tên TLS/DNS của đích rồi cập nhật.
+150.171.27.11
+150.171.28.11
+50.19.149.4
+23.21.189.113
+137.59.44.88

@@ -1,29 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Sinh attack_v20_playbook.json cho thẻ cảnh báo của nhánh bất thường.
+"""Sinh attack_v20_playbook.json cho thẻ cảnh báo của nhánh bất thường, từ dữ liệu MITRE ATT&CK Enterprise 20.0
+(STIX 2.1, kho mitre-attack/attack-stix-data, ghim đúng phiên bản để tái lập được).
 
-Nguồn: dữ liệu MITRE ATT&CK Enterprise phiên bản 20.0 (STIX 2.1) do MITRE công bố trong kho
-mitre-attack/attack-stix-data trên GitHub. Tệp nguồn được ghim đúng phiên bản (enterprise-attack-20.0.json)
-để thẻ cảnh báo luôn dựa trên một bản dữ liệu cố định, tái lập được.
-
-Chạy (một lần, trên máy có Internet):
-    python build_attack_playbook.py                         # tự tải bản 20.0 từ GitHub
-    python build_attack_playbook.py enterprise-attack-20.0.json   # hoặc dùng tệp đã tải sẵn
-Đầu ra: attack_v20_playbook.json, chép lên Wazuh manager cạnh custom-telegram-anomaly.py
-(/var/ossec/integrations/). Script thông báo chỉ ĐỌC tệp này, không truy cập Internet khi có cảnh báo.
-
-Với mỗi kỹ thuật mà thẻ cảnh báo có thể gợi ý, tệp ghi: tên chính thức, chiến thuật (mã TA và tên),
-đường dẫn trang kỹ thuật, các Mitigations (mã M) kèm hướng dẫn riêng cho kỹ thuật
-đó, và các chiến lược phát hiện (detection strategy, mã DET) liên quan.
-"""
+Chạy một lần trên máy có Internet:
+    python build_attack_playbook.py [enterprise-attack-20.0.json]
+Đầu ra chép lên Wazuh manager cạnh custom-telegram-anomaly.py (/var/ossec/integrations/). Với mỗi kỹ thuật thẻ có thể
+gợi ý, tệp ghi tên, chiến thuật, đường dẫn trang kỹ thuật, Mitigations (mã M) và chiến lược phát hiện (mã DET)."""
 import json, re, sys, urllib.request
 from datetime import date
 
 URL = ("https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/"
        "enterprise-attack/enterprise-attack-20.0.json")
 EXPECTED_VERSION = "20.0"
-# Các kỹ thuật thẻ cảnh báo có thể gợi ý (khớp Bảng 2.1 và Bảng 2.3 của báo cáo); T1595 và T1499 dùng cho
-# các giả thuyết của Behavior-IF chiều vào (dò quét từ bên ngoài, làm ngập kết nối).
+# Các kỹ thuật thẻ cảnh báo có thể gợi ý (khớp Bảng 2.1 và Bảng 2.3 của báo cáo).
 TECHS = ["T1071", "T1048", "T1105", "T1046", "T1110", "T1498", "T1190", "T1595", "T1499"]
 OUT = "attack_v20_playbook.json"
 

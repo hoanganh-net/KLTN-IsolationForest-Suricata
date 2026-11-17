@@ -1,0 +1,17 @@
+# suricata.yaml tren Suricata_IDS (may chay anomaly.py), khoi flow-timeouts > tcp. Giu nguyen cac khoi default, udp, icmp.
+# Muc dich: Suricata ghi ban ghi flow som hon de Tang 1 cua Behavior-IF bao nhanh hon (xem README_wazuh.md, muc Rut ngan
+# do tre Tang 1). Mac dinh new = closed = 60 s nen ban ghi cua luong TCP da dong hoac chua bat tay xong toi tre 61-70 s.
+# new giu 10 s, khong ha xuong 5 s: SYN gui lai voi khoang cach tang gap doi, luong chua bat tay xong keo dai tu 15 s co
+# khoang nghi vuot 5 s va bi tach thanh nhieu ban ghi (28,7% so luong chua bat tay xong cua luu luong nen), lech dac trung
+# so voi luc huan luyen; voi 10 s ti le nay con 0,03%.
+# Ap dung: sudo suricata -T -c /etc/suricata/suricata.yaml && sudo systemctl restart suricata
+flow-timeouts:
+  tcp:
+    new: 10
+    established: 600
+    closed: 5
+    bypassed: 100
+    emergency-new: 5
+    emergency-established: 100
+    emergency-closed: 5
+    emergency-bypassed: 50

@@ -242,17 +242,18 @@ def kiem_mien(field, value, method, td):
 
 # 5. Chia dữ liệu
 def chia(df, train_frac, seed, pub_sources):
-    """Gán 'train' hoặc 'val' cho từng dòng."""
+    """Gán 'train'/'val' cho dữ liệu lab; nguồn công khai gán 'ngoai' (chỉ dùng kiểm chứng ngoài, không huấn luyện)."""
     part = pd.Series("train", index=df.index)
     real = df["source"] == "real_wp"
     t = pd.to_datetime(df.loc[real, "ts"], format="ISO8601")
     part[t.index[t >= t.quantile(train_frac)]] = "val"
     rng = np.random.default_rng(seed)
-    nguon = sorted(set(df["source"]) - {"real_wp"}, key=lambda s: (s in pub_sources, s))   # nguồn lab trước
+    nguon = sorted(set(df["source"]) - {"real_wp"} - set(pub_sources))   # chỉ nguồn lab, ngoài real_wp
     for s in nguon:
         idx = df.index[df["source"] == s]
         so_val = int(round((1 - train_frac) * len(idx)))
         part[idx[rng.permutation(len(idx))[:so_val]]] = "val"
+    part[df["source"].isin(pub_sources)] = "ngoai"
     return part
 
 

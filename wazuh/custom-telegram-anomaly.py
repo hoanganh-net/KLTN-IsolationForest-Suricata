@@ -1,21 +1,8 @@
 # -*- coding: utf-8 -*-
-# custom-telegram-anomaly.py - Wazuh -> Telegram cho NHÁNH BẤT THƯỜNG (anomaly).
-# Cùng quy ước với custom-telegram.py của nhánh signature:
-#   Wazuh truyền argv[1]=alert_file, argv[2]=chat_id (đặt ở <api_key>), argv[3]=bot_token (đặt ở <hook_url>).
-# Dùng parse_mode=HTML (an toàn hơn Markdown vì tên đặc trưng có dấu '_').
-#
-# Thẻ cảnh báo: Nguồn/Đích -> z-score diễn giải tiếng Việt -> loại hành vi nghi ngờ (suy từ TỔ HỢP các đặc trưng
-# lệch trong chuỗi why, không chỉ đặc trưng đứng đầu) -> chiến thuật/kỹ thuật MITRE ATT&CK -> Mitigations (mã M)
-# của kỹ thuật theo ATT&CK -> hành động đã thực thi.
-# anomaly.py chỉ phát dữ kiện (module, score, why, frac_out, zone_other, direction, dport_top; với web thêm method, url,
-# location); phần suy luận nằm Ở ĐÂY. Giá trị tham số KHÔNG đưa lên thẻ (có thể chứa dữ liệu nhạy cảm): thẻ chỉ nêu
-# phương thức, đường dẫn không kèm chuỗi truy vấn và tên tham số; giá trị đầy đủ tra trong eve.json theo thời điểm và nguồn.
-# Behavior-IF là một mô hình cho cả hai chiều; trường direction (out: máy nạn nhân khởi tạo, in: bên ngoài khởi tạo) chỉ dùng
-# để chọn cách diễn giải và kỹ thuật ATT&CK phù hợp với vị trí bên khởi tạo.
-#
-# Tên, chiến thuật và Mitigations (mã M) của từng kỹ thuật lấy từ attack_v20_playbook.json, do
-# build_attack_playbook.py sinh từ dữ liệu ATT&CK Enterprise 20.0 (STIX) chính thức của MITRE. Tệp này đặt cùng
-# thư mục với script; script KHÔNG truy cập Internet để tra ATT&CK khi có cảnh báo.
+# custom-telegram-anomaly.py: gửi cảnh báo của nhánh bất thường từ Wazuh sang Telegram (parse_mode=HTML).
+# Wazuh truyền argv[1] = tệp alert, argv[2] = chat_id (<api_key>), argv[3] = bot token (<hook_url>).
+# Thẻ: nguồn/đích, diễn giải z-score, loại hành vi nghi ngờ suy từ tổ hợp đặc trưng lệch, kỹ thuật ATT&CK và
+# Mitigations lấy từ attack_v20_playbook.json (không truy cập Internet). Giá trị tham số không đưa lên thẻ.
 
 import sys, os, json, re, html, ipaddress
 from datetime import datetime
@@ -51,9 +38,12 @@ ATTACK = load_attack()
 # --- Tên mô-đun thân thiện ---
 MODULE_NAME = {
     "anomaly_if":       "Hành vi mạng (Behavior-IF)",
+    "anomaly_if_rt":    "Hành vi mạng, cảnh báo nhanh (Behavior-IF Tầng 1)",
     "anomaly_web":      "Giá trị tham số (Web-Query)",
     "anomaly_web_body": "Văn bản tự do POST (Web-Body)",
 }
+# Hai tầng của Behavior-IF dùng chung bộ đặc trưng hành vi nên dùng chung phần diễn giải và gợi ý kỹ thuật ATT&CK.
+BEH_MODULES = ("anomaly_if", "anomaly_if_rt")
 
 # Trạng thái sự cố do anomaly.py --live ghi cho cảnh báo hành vi (gom các cửa sổ bất thường của cùng một cặp nguồn, đích).
 EPISODE_VI = {
@@ -78,8 +68,15 @@ def episode_line(data):
         if st != "new" and data.get("episode_start"):
             s += ", bắt đầu {0}".format(e(_ts(data.get("episode_start"))))
         if data.get("episode_windows"):
-            s += ", {0} bucket 30' bất thường".format(e(data.get("episode_windows")))
+            don_vi = "cửa sổ 2'" if data.get("module") == "anomaly_if_rt" else "bucket 30'"
+            s += ", {0} {1} bất thường".format(e(data.get("episode_windows")), don_vi)
         parts.append(s)
+    lat = _num(data.get("lat_s"))
+    if data.get("module") == "anomaly_if_rt" and lat is not None and 0 <= lat <= 3600:
+        # độ trễ đầu cuối khi chạy live: giờ phát cảnh báo trừ lúc bắt đầu của luồng sớm nhất trong cửa sổ
+        parts.append("⚡ <b>Phát hiện</b> sau {0:.0f} giây kể từ luồng đầu tiên của cửa sổ".format(lat))
+    elif data.get("module") == "anomaly_if_rt" and _num(data.get("t_det_s")) is not None:
+        parts.append("⚡ <b>Phát hiện</b> sau {0:.0f} giây kể từ đầu cửa sổ".format(_num(data.get("t_det_s"))))
     return " | ".join(parts)
 
 # --- Từ điển 1: diễn giải z-score sang tiếng Việt (11 đặc trưng hành vi + 13 đặc trưng từ vựng web) ---
@@ -112,8 +109,7 @@ ZSCORE_VI = {
     "max_run_sym":     "Chuỗi ký tự đặc biệt liền nhau dài bất thường.",
 }
 
-# Khi bên khởi tạo là nguồn bên ngoài (direction = in): "byte đi ra" là byte nguồn gửi vào máy chủ, "byte nhận vào" là byte
-# máy chủ trả về cho nguồn. Các đặc trưng còn lại giữ nghĩa nhưng mô tả theo góc nhìn nguồn bên ngoài.
+# Chiều vào: byte đi ra là byte nguồn bên ngoài gửi vào máy chủ, byte nhận vào là byte máy chủ trả về.
 ZSCORE_VI_IN = {
     "log_n_conn":      "Số kết nối từ nguồn bên ngoài trong cửa sổ tăng bất thường.",
     "sqrt_mb_out":     "Khối lượng byte nguồn bên ngoài gửi vào máy chủ lớn bất thường.",
@@ -148,9 +144,8 @@ BEH = {   # khóa: (nhãn nghi ngờ, mã kỹ thuật ATT&CK hoặc None)
     "unknown":  ("Kết nối bất thường, chưa đủ dấu hiệu để xác định loại hành vi", None),
 }
 
-# Bên khởi tạo ở ngoài (direction = in): cùng cách bầu theo đặc trưng lệch nhiều nhất, với các giả thuyết của phía bên ngoài.
-# Tần suất kết nối cao tới một dịch vụ xác thực được coi là dò đăng nhập; tới dịch vụ khác thì chưa phân biệt được
-# dò đăng nhập, dò nội dung web hay làm ngập chỉ từ bản ghi luồng, nên thẻ nêu các kỹ thuật ứng viên.
+# Chiều vào: cùng cách bầu. Tần suất cao tới dịch vụ xác thực là dò đăng nhập; tới dịch vụ khác thì bản ghi luồng
+# chưa phân biệt được dò đăng nhập, dò nội dung web hay làm ngập, nên thẻ nêu các kỹ thuật ứng viên.
 AUTH_PORTS = {21, 22, 23, 110, 143, 389, 445, 636, 993, 995, 1433, 1521, 3306, 3389, 5432, 5900, 5985, 5986}
 IN_VOTE = {"log_n_ports": "scan", "frac_incomplete": "scan", "log_peak_cpm": "rate", "log_n_conn": "rate"}
 IN = {   # khóa: (nhãn nghi ngờ, mã kỹ thuật / danh sách kỹ thuật ứng viên / None)
@@ -173,9 +168,7 @@ WEB = {   # khóa: nhãn nghi ngờ
 }
 WEB_TECH = "T1190"
 
-# Thẻ hiện tối đa MAX_MIT mitigation cho mỗi kỹ thuật để gọn trên điện thoại; danh sách đầy đủ xem ở liên kết.
-# Kỹ thuật có nhiều hơn MAX_MIT mục thì hiện các mục dưới đây, chọn theo tiêu chí: chặn trực tiếp kỹ thuật đã phát hiện
-# hoặc loại bỏ điều kiện để nó thành công, thay vì chỉ hạn chế hậu quả sau đó. Mã và tên vẫn lấy từ playbook ATT&CK.
+# Thẻ hiện tối đa MAX_MIT mitigation mỗi kỹ thuật (đủ danh sách ở liên kết), ưu tiên mục chặn trực tiếp kỹ thuật.
 MAX_MIT = 3
 MIT_PICK = {
     "T1190": ["M1050", "M1051", "M1016"],   # WAF, cập nhật phần mềm, quét lỗ hổng
@@ -208,6 +201,15 @@ def zone_of(data):
 
 def suspect_in(S, raw, notes, data):
     """Nhánh diễn giải khi bên khởi tạo ở ngoài vùng nạn nhân (direction = in)."""
+    beh = str(data.get("behavior") or "").lower()                   # nhãn tin cậy do anomaly.py gán -> ưu tiên hơn heuristic
+    B2K = {"brute": "brute", "flood": "dos", "scan": "scan"}        # brute->T1110, flood(dos)->T1499, scan->T1595
+    if beh in B2K:
+        key = B2K[beh]
+        port = int(_num(data.get("dport_top")) or 0)
+        if port:
+            notes.append("cổng đích chính {0}".format(port))
+        label, tech = IN[key]
+        return key, label, tech, [(f, raw[f]) for f in list(S)[:2]], "svc_rarity" in S, notes
     if "log_peak_cpm" in S and "frac_incomplete" in S:              # nhiều kết nối/phút, phần lớn dang dở
         key, basis = "dos", ["log_peak_cpm", "frac_incomplete"]
     else:
@@ -233,9 +235,9 @@ def suspect(module, reasons, data):
         v = _num(z)
         if v is not None and v >= SIG and f not in S:
             S[f], raw[f] = v, z
-    if module == "anomaly_if" and str(data.get("direction") or "") == "in":
+    if module in BEH_MODULES and str(data.get("direction") or "") == "in":
         return suspect_in(S, raw, notes, data)
-    if module == "anomaly_if":
+    if module in BEH_MODULES:
         if "log_peak_cpm" in S and "frac_incomplete" in S:          # nhiều kết nối/phút, phần lớn dang dở
             key, basis = "dos", ["log_peak_cpm", "frac_incomplete"]
         else:
@@ -355,13 +357,28 @@ def build_message(rule, data):
 
     critical = level >= 15
     head = "🔴 <b>ANOMALY - CRITICAL</b>" if critical else ("🟠 <b>ANOMALY - HIGH</b>" if level >= 12 else "🟡 <b>ANOMALY</b>")
+    if module == "anomaly_if_rt" and not critical:
+        head = "⚡ <b>ANOMALY - CẢNH BÁO NHANH</b>" + (" 🟠 <b>HIGH</b>" if level >= 12 else "")
     L = [head]
     L.append("📝 <b>Rule</b> {0} (level {1}) | {2}".format(e(rid), level, e(MODULE_NAME.get(module, module))))
-    inbound = module == "anomaly_if" and str(data.get("direction") or "") == "in"
+    inbound = module in BEH_MODULES and str(data.get("direction") or "") == "in"
     extra = ""
-    if inbound:
+    if module in BEH_MODULES:
         port = int(_num(data.get("dport_top")) or 0)
-        extra = (" | <b>Cổng</b> {0}".format(port) if port else "") + " (bên ngoài khởi tạo)"
+        n_ports = int(_num(data.get("n_ports")) or 0)
+        z_ports = _num(dict(parse_reasons(why)).get("log_n_ports")) or 0.0
+        # dports: danh sách cổng đích ghép sẵn ("22,80"), anomaly.py phát kèm; cũ chưa có thì rỗng.
+        dports = [p.strip() for p in str(data.get("dports") or "").split(",") if p.strip().isdigit()]
+        # Dò nhiều cổng thì mỗi cổng chỉ vài luồng, "cổng nhiều luồng nhất" gần như ngẫu nhiên: ghi số cổng thay cho một cổng.
+        # Cảnh báo từ anomaly.py cũ chưa có n_ports thì chỉ coi là nhiều cổng khi log_n_ports chạm trần độ lệch (+50).
+        if n_ports >= 10 or (not n_ports and z_ports >= 50):
+            extra = " | <b>Cổng</b>: nhiều cổng" + (", {0} cổng khác nhau".format(n_ports) if n_ports else "")
+        elif inbound and 2 <= n_ports <= 3 and len(dports) == n_ports:
+            extra = " | <b>Cổng</b> " + ", ".join(dports)
+        elif inbound and port:
+            extra = " | <b>Cổng</b> {0}".format(port) + (" và {0} cổng khác".format(n_ports - 1) if n_ports > 1 else "")
+        if inbound:
+            extra += " (bên ngoài khởi tạo)"
     L.append("🌐 <b>Nguồn</b> {0}".format(e(srcip)) + (" ➔ <b>Đích</b> {0}".format(e(dstip)) if dstip else "") + extra
              + (" (Host: {0})".format(e(host)) if host else ""))
     if module in ("anomaly_web", "anomaly_web_body"):
@@ -370,7 +387,7 @@ def build_message(rule, data):
         try: s = "{0:.3f}".format(float(score))
         except Exception: s = e(score)
         L.append("📊 <b>Điểm</b> {0}".format(s) + (" | <b>Mức độ</b> {0}".format(e(severity)) if severity else ""))
-    if module == "anomaly_if":
+    if module in BEH_MODULES:
         ep = episode_line(data)
         if ep: L.append(ep)
 

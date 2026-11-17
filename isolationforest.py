@@ -1,28 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
-isolationforest.py: Isolation Forest TỰ CÀI (NumPy thuần, không dùng scikit-learn).
+"""isolationforest.py: Isolation Forest tự cài bằng NumPy (Liu, Ting, Zhou 2008), dùng trong notebook để kiểm
+chứng cách hiểu thuật toán; anomaly.py dùng bản scikit-learn cho tốc độ, hai bản được đối chiếu bằng tương quan Spearman.
+Kèm z-score bền vững (zscore, explain, explain_str) để diễn giải cảnh báo.
 
-Mục đích: dùng trong các notebook của KLTN để CHO THẤY và KIỂM CHỨNG rằng thuật toán
-được hiểu đúng từ gốc, không dùng như hộp đen; kèm z-score diễn giải (zscore/explain/explain_str)
-đã gộp vào đây. File runtime `anomaly.py` thì dùng bản
-Isolation Forest của scikit-learn cho tốc độ; hai bản được đối chiếu bằng tương quan
-thứ hạng Spearman (xem hàm so sánh ở cuối notebook).
-
-Mạch triển khai nối tiếp từ test.ipynb:
-  split_data()  -> chọn ngẫu nhiên một đặc trưng, lấy min/max, bốc ngưỡng ngẫu nhiên,
-                   chia dữ liệu thành nhánh trái/phải.
-  Node          -> một nút của cây: feature_index, threshold, left, right, is_leaf, size.
-  iTree         -> đệ quy split_data cho tới khi cô lập (1 điểm) hoặc chạm giới hạn độ cao.
-  Forest        -> gồm nhiều iTree, mỗi cây học trên một mẫu con psi điểm lấy ngẫu nhiên.
-  Chấm điểm     -> E(h(x)) là độ dài đường đi trung bình; s = 2^(-E/c(psi)).
-
-Công thức (Liu, Ting, Zhou 2008):
-  c(n) = 2*H(n-1) - 2*(n-1)/n ,  với H(i) = ln(i) + gamma (gamma ~ 0.5772, hằng Euler).
-         c(n) là độ dài đường đi trung bình kỳ vọng trong cây tìm kiếm nhị phân không
-         thành công trên n điểm -> dùng để CHUẨN HÓA điểm, cho các cỡ mẫu so sánh được.
-  s(x) = 2^( -E(h(x)) / c(psi) ) ,  s -> 1: bất thường rõ; s ~ 0.5: trung bình;
-         s < 0.5 hẳn: nằm sâu trong vùng bình thường.
-"""
+    c(n) = 2*H(n-1) - 2*(n-1)/n,  H(i) = ln(i) + 0.5772   độ dài đường đi trung bình kỳ vọng, dùng để chuẩn hóa
+    s(x) = 2^(-E(h(x)) / c(psi))                          gần 1: bất thường rõ; quanh 0.5: không phân biệt được"""
 
 import numpy as np
 
@@ -52,9 +34,7 @@ def c_factor_arr(n):
     return c
 
 
-# =============================================================================
-# MỘT CÂY CÔ LẬP (iTree)
-# =============================================================================
+# ---- Một cây cô lập (iTree) ----
 class IsolationTree:
     """Một cây cô lập. Nút được lưu trong các mảng song song để chấm điểm nhanh,
     nhưng logic xây cây vẫn đúng mạch split_data/Node ở test.ipynb."""
@@ -85,9 +65,8 @@ class IsolationTree:
             self.feature[node] = -1
             return node
 
-        # --- split_data: chọn đặc trưng ngẫu nhiên, lấy min/max, bốc ngưỡng ngẫu nhiên ---
+        # Chọn ngẫu nhiên một đặc trưng còn biến thiên (min < max) và một ngưỡng; không còn đặc trưng nào thì thành lá.
         m = X.shape[1]
-        # chỉ xét các đặc trưng còn biến thiên (min < max); nếu không còn thì thành lá
         cols = [j for j in range(m) if X[:, j].min() < X[:, j].max()]
         if not cols:
             self.feature[node] = -1
@@ -96,7 +75,7 @@ class IsolationTree:
         vmin = X[:, f].min(); vmax = X[:, f].max()
         thr = self.rng.uniform(vmin, vmax)
 
-        # --- chia dữ liệu thành trái (< ngưỡng) và phải (>= ngưỡng) ---
+        # Chia thành nhánh trái (< ngưỡng) và phải (>= ngưỡng).
         go_left = X[:, f] < thr
         self.feature[node] = f
         self.threshold[node] = thr
@@ -116,9 +95,8 @@ class IsolationTree:
         return self
 
     def path_length(self, X):
-        """Độ dài đường đi h(x) cho từng điểm trong X (mảng (N,m)).
-        Đưa CẢ loạt điểm đi xuống cây cùng lúc (vector hóa) để nhanh;
-        tại lá cộng thêm c(size) để bù phần cây chưa dựng hết."""
+        """Độ dài đường đi h(x) của từng điểm trong X (N, m): đưa cả loạt điểm xuống cây cùng lúc, tới lá thì
+        cộng c(size) để bù phần cây chưa dựng hết."""
         X = np.asarray(X, dtype=float)
         N = X.shape[0]
         node = np.zeros(N, dtype=int)      # mọi điểm bắt đầu ở gốc (nút 0)
@@ -150,18 +128,23 @@ class IsolationTree:
         return depth + adj
 
 
-# =============================================================================
-# RỪNG CÔ LẬP (Isolation Forest)
-# =============================================================================
-class IsolationForest:
-    """Isolation Forest tự cài. API gần với scikit-learn để notebook dễ đối chiếu:
-        fit(X) ; anomaly_score(X) -> s trong [0,1], càng lớn càng bất thường.
-    Tham số mặc định theo bài báo gốc: n_estimators=100, max_samples=256."""
+# ---- Rừng cô lập ----
+def _tong_duong_di(trees, X):
+    total = np.zeros(X.shape[0], dtype=float)
+    for tree in trees:
+        total += tree.path_length(X)
+    return total
 
-    def __init__(self, n_estimators=100, max_samples=256, random_state=None):
+
+class IsolationForest:
+    """Isolation Forest tự cài, API gần scikit-learn: fit(X), anomaly_score(X) trả s trong [0, 1], càng lớn
+    càng bất thường. Mặc định theo bài báo gốc: n_estimators=100, max_samples=256."""
+
+    def __init__(self, n_estimators=100, max_samples=256, random_state=None, n_jobs=None):
         self.n_estimators = n_estimators
         self.max_samples = max_samples
         self.random_state = random_state
+        self.n_jobs = n_jobs                  # chấm song song theo khối dòng; None hoặc 1: chấm tuần tự
         self.trees = []
         self._psi = None
 
@@ -183,9 +166,14 @@ class IsolationForest:
 
     def _mean_path(self, X):
         X = np.asarray(X, dtype=float)
-        total = np.zeros(X.shape[0], dtype=float)
-        for tree in self.trees:
-            total += tree.path_length(X)
+        jobs = 1 if self.n_jobs in (None, 1) or len(X) < 50_000 else self.n_jobs
+        if jobs == 1:
+            total = _tong_duong_di(self.trees, X)
+        else:
+            # mỗi khối dòng vẫn cộng các cây theo đúng thứ tự, nên kết quả trùng từng bit với cách chấm tuần tự
+            from joblib import Parallel, delayed, effective_n_jobs
+            khoi = np.array_split(X, effective_n_jobs(jobs))
+            total = np.concatenate(Parallel(n_jobs=jobs)(delayed(_tong_duong_di)(self.trees, x) for x in khoi))
         return total / len(self.trees)        # E(h(x))
 
     def anomaly_score(self, X):
@@ -194,13 +182,9 @@ class IsolationForest:
         return np.power(2.0, -E / c_factor(self._psi))
 
 
-# =============================================================================
-# DIỄN GIẢI "VÌ SAO BẤT THƯỜNG" (z-score bền vững, gộp từ zscore.py)
-# =============================================================================
-# Isolation Forest chỉ cho ĐIỂM bất thường, không nói đặc trưng nào gây ra. Phần dưới bù
-# điều đó bằng z = (x - tâm)/thang. Khi DIỄN GIẢI dùng tâm=median, thang=1.4826*MAD (bền
-# với chính các điểm bất thường). Nhiều đặc trưng đếm gần như luôn = 0 ở lưu lượng lành nên
-# MAD ≈ 0; khi đó |z| bị chặn ở `clip` cho dễ đọc (không ảnh hưởng quyết định của model).
+# ---- Diễn giải: z-score bền vững ----
+# Rừng chỉ cho điểm, không chỉ ra đặc trưng nào gây bất thường; z = (x - median) / (1.4826 * MAD) bù phần đó.
+# Đặc trưng đếm thường có MAD gần 0 ở lưu lượng lành, nên |z| được chặn ở clip cho dễ đọc.
 
 def zscore(x, center, scale):
     """Chuẩn hóa: (x - tâm) / thang. Thang ~0 -> 1 để khỏi chia cho 0."""
@@ -220,9 +204,7 @@ def explain_str(x, center, scale, feature_names, k=3):
     return ", ".join(f"{f}({z:+.1f})" for f, z in explain(x, center, scale, feature_names, k))
 
 
-# =============================================================================
-# TỰ KIỂM TRA NHANH (chạy trực tiếp file này)
-# =============================================================================
+# ---- Tự kiểm tra nhanh khi chạy trực tiếp tệp này ----
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
     # 200 điểm bình thường quanh gốc + 5 điểm bất thường ở xa

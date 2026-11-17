@@ -9,10 +9,10 @@
       cần gửi cả cảnh báo khác (vuln, SCA...) thì phải điều chỉnh filter.
 
   (2) THÊM integration custom-telegram-anomaly: bot/chat thứ 2, chỉ gửi các cảnh báo thuộc nhóm
-      anomaly_notify (100305, 100306, 100311, 100312). Các rule 100301-100304 chỉ mang anomaly_event
+      anomaly_notify (100305, 100306, 100307, 100308, 100309, 100311, 100312). Các rule 100301-100304 chỉ mang anomaly_event
       để Wazuh đếm, không gửi Telegram.
 
-  (3) Active Response cho rule 100312: dùng suricata-drop theo suricata-drop.config.snippet.xml
+  (3) Active Response cho rule 100309 và 100312: dùng suricata-drop theo suricata-drop.config.snippet.xml
       (IPS chạy AF_PACKET inline nên firewall-drop/iptables không chặn được luồng).
 
   Sau khi sửa: sudo systemctl restart wazuh-manager

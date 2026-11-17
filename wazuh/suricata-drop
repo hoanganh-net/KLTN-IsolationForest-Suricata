@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Wazuh Active Response: chan IP nguon bang LUAT DROP cua SURICATA (danh cho IPS inline AF_PACKET,
-# noi iptables FORWARD khong thay goi). Doc JSON lenh tren stdin (giao thuc AR cua Wazuh 4.x), lay
-# command (add/delete) + srcip, them/bot mot luat `drop ip <ip> ...` vao file rule roi RELOAD
-# Suricata live (suricatasc -c reload-rules, fallback USR2). Het timeout, Wazuh goi lai voi "delete".
-#
-# Giao thuc execd (4.x): execd gui MOT dong JSON va GIU stdin mo. Voi "add", script phai in thong diep
-# check_keys ra stdout, doc mot dong tra loi ("continue" hoac "abort") roi moi thuc thi.
-# => KHONG duoc dung sys.stdin.read() (cho EOF se treo vinh vien).
-#
-# DAT TREN: agent IPS (suricata-ips). Duong dan: /var/ossec/active-response/bin/suricata-drop (chmod 750,
-# chown root:wazuh). File custom.rules phai duoc include trong suricata.yaml.
+# Wazuh Active Response: chan IP nguon bang luat drop cua Suricata IPS inline (AF_PACKET, iptables FORWARD khong thay).
+# Doc mot dong JSON lenh tu execd (add/delete + srcip), them/bot luat `drop ip <ip>` roi reload Suricata (suricatasc,
+# du phong USR2). Voi add: in check_keys, doc tra loi continue/abort; KHONG dung sys.stdin.read() vi execd giu stdin mo.
+# Dat tai /var/ossec/active-response/bin/suricata-drop tren agent IPS (chmod 750, chown root:wazuh).
 
 import sys, os, json, time, hashlib, subprocess
 
@@ -83,7 +76,11 @@ def main():
 
     sid  = sid_for(ip)
     mark = "sid:%d;" % sid
-    rule = ('drop ip %s any -> any any (msg:"Wazuh AR - chan nguon bat thuong %s"; sid:%d; rev:1;)\n'
+    # threshold type limit: VAN drop moi goi, nhung moi nguon chi sinh toi da 1 alert / 15s -> khong ngap nhanh
+    # signature luc flood ma van thay block dang dien ra. threshold chi gioi han ALERT, KHONG chan action drop
+    # (detection_filter moi chan action theo nguong - khong dung o day). Chinh 'seconds' de doi gian cach.
+    rule = ('drop ip %s any -> any any (msg:"Wazuh AR - chan nguon bat thuong %s"; '
+            'threshold: type limit, track by_src, count 1, seconds 15; sid:%d; rev:1;)\n'
             % (ip, ip, sid))
 
     os.makedirs(os.path.dirname(RULES), exist_ok=True)
