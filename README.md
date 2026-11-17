@@ -7,10 +7,10 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Đề tài xây dựng nhánh phát hiện bất thường chạy song song với nhánh chữ ký của Suricata, gồm hai mô-đun Isolation Forest học không giám sát trên nhật ký `eve.json`:
 
-- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong cửa sổ 30 phút, cho cả chiều ra và chiều vào. Mỗi cửa sổ được mô tả bằng 11 đại lượng, nhưng chỉ 8 trong số đó được đưa vào rừng để chấm điểm; 3 đại lượng còn lại (số kết nối, số byte chiều vào, tỉ lệ phiên bắt tay dở) chỉ ghi kèm cảnh báo để diễn giải, không tham gia chấm điểm.
-- **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Mỗi giá trị tham số được mô tả bằng 13 đặc trưng từ vựng, nhưng chỉ 11 được đưa vào rừng; 2 đặc trưng còn lại (số dấu ngoặc nhọn, số dấu phần trăm) chỉ dùng cho bước kiểm tra miền, không tham gia chấm điểm.
+- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian, cho cả chiều ra và chiều vào. Mô-đun có hai tầng: Tầng 1 (cảnh báo nhanh) dùng cửa sổ 2 phút và 5 đặc trưng để báo sớm hành vi dồn dập như dò quét, dò đăng nhập, làm ngập; Tầng 2 dùng cửa sổ 30 phút và 8 đặc trưng để phát hiện hành vi kéo dài như kênh C2, tải công cụ, exfiltration. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của tầng đó chỉ ghi kèm cảnh báo để diễn giải.
+- **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Rừng chấm trên 11 đặc trưng từ vựng; ký tự `<`, `>` và chuỗi percent-encoding còn sót sau khi giải mã được tách sang bước kiểm tra miền của giá trị ngắn.
 
-Cảnh báo được đẩy vào Wazuh, phân loại theo bộ rule riêng, gửi Telegram và có thể chặn nguồn qua Active Response.
+Cảnh báo được đẩy vào Wazuh, phân mức theo bộ rule riêng, gửi Telegram và chặn nguồn qua Active Response tại Suricata_IPS.
 
 ## Chạy lại
 
@@ -19,17 +19,11 @@ Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên b
 ```
 python -m venv .venv
 .venv\Scripts\pip install jupyter
-.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_BehaviorIF.ipynb
-.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace KLTN_WebAppIF.ipynb
+.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace 1_KLTN_BehaviorIF.ipynb
+.venv\Scripts\jupyter nbconvert --to notebook --execute --inplace 2_KLTN_WebAppIF.ipynb
 ```
 
-Chạy theo thứ tự: `KLTN_BehaviorIF.ipynb` (số 1) trước, vì notebook này tải cả bộ dữ liệu về `data/`; rồi `KLTN_WebAppIF.ipynb` (số 2), notebook này chỉ đọc `data/` chứ không tự tải. Cả hai cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Mỗi notebook ghi ra một tệp mô hình để `anomaly.py` nạp khi chạy trực tuyến.
-
-## Hạ tầng thực nghiệm
-
-Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng quản trị (VLAN 20). Suricata_IPS đặt nội tuyến, Suricata_IDS nhận bản sao qua SPAN và chạy `anomaly.py`.
-
-![Sơ đồ hạ tầng thực nghiệm](docs/so_do_mang.png)
+Chạy theo số trong tên tệp: `1_KLTN_BehaviorIF.ipynb` trước, vì notebook này tải cả bộ dữ liệu về `data/`; rồi `2_KLTN_WebAppIF.ipynb`, notebook này chỉ đọc `data/` chứ không tự tải. Cả hai cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Notebook 1 xuất `net_if_model.joblib` (cả hai tầng của Behavior-IF), notebook 2 xuất `web_app_if_model.joblib`; chương trình trong `suricata/anomaly/` nạp hai tệp này khi chạy trực tuyến.
 
 ## Luồng dữ liệu
 
@@ -37,35 +31,57 @@ Hệ thống chạy theo hai giai đoạn. Ở giai đoạn huấn luyện ngo�
 
 ![Luồng dữ liệu của nhánh phát hiện bất thường](docs/luong_du_lieu.png)
 
-## Cửa sổ trượt của Behavior-IF
+*Hình 3.1. Luồng dữ liệu của nhánh phát hiện bất thường*
 
-Behavior-IF không chấm từng bản ghi `flow` riêng lẻ mà gộp lưu lượng của mỗi cặp máy theo cửa sổ thời gian dài 30 phút, trượt mỗi 15 phút. Hai cửa sổ liền kề chồng nhau 15 phút, nên một hành vi nằm vắt qua ranh giới cửa sổ vẫn được chấm trọn trong ít nhất một cửa sổ; cách này giảm nguy cơ bỏ sót so với việc chia cửa sổ không chồng lấn. Mỗi cửa sổ của một cặp máy là một đơn vị phân tích, được mô tả bằng bộ đặc trưng hành vi rồi đưa vào mô hình.
+## Hạ tầng thực nghiệm
 
-![Cửa sổ trượt 30 phút, bước 15 phút](docs/cua_so_truot.png)
+Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng quản trị (VLAN 20). Suricata_IPS đặt nội tuyến, Suricata_IDS nhận bản sao qua SPAN và chạy `anomaly.py`.
+
+![Sơ đồ hệ thống mạng thực nghiệm](docs/so_do_mang.png)
+
+*Hình 3.2. Sơ đồ hệ thống mạng thực nghiệm*
+
+## Cơ chế chấm
+
+![Cửa sổ trượt 2 phút, bước 1 phút của Tầng 1](docs/cua_so_truot_tang1.png)
+
+*Tầng 1: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng.*
+
+![Cửa sổ trượt 30 phút, bước 15 phút của Tầng 2](docs/cua_so_truot.png)
+
+*Tầng 2: chấm mỗi cửa sổ một lần, 6 phút sau khi cửa sổ đóng.*
+
+![Trường đọc và mô hình chấm của Web-App IF](docs/web_app_if_co_che.png)
+
+*Web-App IF: trường văn bản tự do xác định theo tên trường (comment, content, message, title…); bước kiểm tra miền gán điểm 1 cho giá trị ngắn có `<`, `>` hoặc `%xx` còn sót.*
 
 ## Kết quả trên tập kiểm thử
 
-Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng của mỗi mô hình được chọn trên tập kiểm định sao cho FPR không vượt 0,2%; tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
+Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Tầng 2 và hai mô hình web theo FPR không vượt 0,2%, Tầng 1 theo số cảnh báo nhầm không quá một mỗi giờ; tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
 
 ### Behavior-IF
 
-| Chỉ số | Kết quả |
-|---|---|
-| Lượt và phiên tấn công được phát hiện | 531 / 532 (99,81%) |
-| Recall theo cửa sổ | 97,08% |
-| FPR chiều ra, tập kiểm định / kiểm thử | 0,141% / 0,146% |
-| FPR chiều vào, tập kiểm thử | 0% |
-| Cảnh báo nhầm mỗi giờ, kiểm định / kiểm thử | 1,27 / 0,75 |
+| Chỉ số | Tầng 1 | Tầng 2 |
+|---|---|---|
+| Cảnh báo nhầm mỗi giờ chiều ra, kiểm định / kiểm thử | 0,71 / 0,49 | 1,27 / 0,75 |
+| Cửa sổ bình thường chiều vào bị gắn cờ, tập kiểm thử | 0 / 7.158 | 0 / 526 |
+| Trung vị độ trễ với hành vi dồn dập | 6 đến 100 giây | 13 đến 31 phút |
 
-![Recall của Behavior-IF theo hành vi](docs/behavior_if_recall.png)
+Tầng 2 phát hiện 531 trong 532 lượt và phiên tấn công (99,81%), recall theo cửa sổ 97,08%, FPR chiều ra 0,146% trên tập kiểm thử so với 0,141% trên tập kiểm định. Tầng 1 bắt toàn bộ hành vi dồn dập: 109 lượt dò quét vùng quản trị, 118 lượt dò đăng nhập SSH, 2 phiên dò quét và 3 phiên flooding từ bên ngoài, 11 phiên gửi payload web; hành vi kéo dài do Tầng 2 đảm nhận.
 
-![Phân bố điểm của cửa sổ chiều ra trên tập kiểm thử](docs/behavior_if_phan_bo_diem.png)
+![Recall của Tầng 2 theo hành vi](docs/behavior_if_recall.png)
+
+*Hình 3.3. Recall của Tầng 2 theo hành vi trên tập kiểm thử*
+
+![Phân bố điểm của cửa sổ chiều ra ở Tầng 2](docs/behavior_if_phan_bo_diem.png)
+
+*Hình 3.4. Phân bố điểm bất thường của cửa sổ chiều ra ở Tầng 2 trên tập kiểm thử*
 
 ### Web-App IF
 
 | Chỉ số | GET | POST |
 |---|---|---|
-| Tấn công gửi tay trên trang thực nghiệm | 99,78% | 97,47% |
+| Tấn công gửi tay trên trang thực nghiệm | 99,78% | 77 / 79 |
 | Recall trên tập kiểm thử (bốn loại) | 97,03% | 88,72% |
 | Recall riêng SQL Injection và XSS | 99,62% | 96,00% |
 | FPR trên request hợp lệ do script duyệt web tạo | 0% | 0% |
@@ -73,37 +89,53 @@ Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡn
 
 ![Recall của Web-App IF với SQL Injection và XSS](docs/web_app_if_recall_sqli_xss.png)
 
+*Hình 3.5. Recall của Web-App IF với SQL Injection và XSS trên tập kiểm thử*
+
 ![Phân bố điểm của Web-Query IF và Web-Body IF với SQL Injection và XSS](docs/web_app_if_phan_bo_sqli_xss.png)
+
+*Hình 3.6. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với SQL Injection và XSS trên tập kiểm thử*
 
 ![Recall của Web-App IF với command injection và path traversal](docs/web_app_if_recall_cmdi_pt.png)
 
+*Hình 3.7. Recall của Web-App IF với command injection và path traversal trên tập kiểm thử*
+
 ![Phân bố điểm của Web-Query IF và Web-Body IF với command injection và path traversal](docs/web_app_if_phan_bo_cmdi_pt.png)
 
-Mỗi giá trị tham số do đúng một mô hình chấm: query GET và trường ngắn của POST (email, tên, mã số, trường ẩn của form...) do Web-Query IF chấm (nửa trái của hình phân bố điểm); văn bản tự do của POST (bình luận, nội dung tin nhắn, bài viết) do Web-Body IF chấm (nửa phải). Mỗi nửa so phân bố điểm của giá trị hợp lệ với giá trị mang tấn công của nhóm, kèm ngưỡng của mô hình. Một request bị gắn cờ khi có giá trị vượt ngưỡng của mô hình chấm nó; cột ở điểm 1,0 là các giá trị bị bước kiểm tra miền gán điểm 1. SQL Injection và XSS nằm xa ngưỡng ở cả hai mô hình; command injection và path traversal sát ngưỡng hơn, nhất là ở văn bản tự do, và là điểm yếu của mô-đun.
+*Hình 3.8. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với command injection và path traversal trên tập kiểm thử*
+
+Mỗi nửa của hình phân bố điểm so giá trị hợp lệ với giá trị mang tấn công của nhóm, kèm ngưỡng của mô hình; cột ở điểm 1,0 là các giá trị bị bước kiểm tra miền gán điểm 1. SQL Injection và XSS nằm xa ngưỡng ở cả hai mô hình; command injection và path traversal sát ngưỡng hơn, nhất là ở văn bản tự do, và là điểm yếu của mô-đun.
 
 ### Kiểm chứng
 
-- Isolation Forest tự cài xếp hạng gần như trùng scikit-learn (tương quan Spearman 0,981 đến 0,994).
-- `anomaly.py` chấm lại toàn bộ tập kiểm thử và cho cùng quyết định với bản scikit-learn trong notebook.
+- Isolation Forest tự cài xếp hạng gần như trùng scikit-learn: hệ số Spearman từ 0,98 đến 0,997, riêng chiều vào của Tầng 1 là 0,90.
+- `anomaly.py` chấm lại tập kiểm thử và cho cùng quyết định với notebook.
+- Số liệu của Tầng 2 và hai mô hình web tính trên bản tự cài, của Tầng 1 trên bản scikit-learn.
 
 ## Xử lý cảnh báo trên Wazuh
 
-Wazuh ghi nhận mỗi cảnh báo ở mức 10 và nâng lên mức 12 khi điểm cao. Khi cùng một nguồn có từ 5 cảnh báo trong 300 giây, cảnh báo lên mức 13; từ 10 cảnh báo trong 600 giây thì lên mức 15. Rule mức 15 gửi thẻ CRITICAL và kích hoạt Active Response chặn IP nguồn tại Suricata_IPS trong 15 giây. Bộ rule và cách cài đặt nằm trong [`wazuh/README_wazuh.md`](wazuh/README_wazuh.md).
+Wazuh ghi nhận mỗi cảnh báo ở mức 10 và nâng lên mức 12 khi điểm cao. Cảnh báo Tầng 1 đi nhánh riêng: 100307 ở mức 10, 100308 ở mức 12 khi điểm cao, 100309 ở mức 12 khi Tầng 1 gán nhãn brute hoặc flood. Một nguồn có từ 5 cảnh báo trong 300 giây thì lên mức 13 (100311), từ 10 cảnh báo trong 600 giây thì lên mức 15 (100312). Active Response chặn IP nguồn tại Suricata_IPS trong 15 giây theo hai đường: rule 100312 với nguồn tái diễn và rule 100309 với nguồn mang nhãn brute hoặc flood; dò quét chỉ được cảnh báo. Bộ rule và cách cài đặt nằm trong [`wazuh/README_wazuh.md`](wazuh/README_wazuh.md).
+
+Thẻ Telegram chuyển các đặc trưng lệch nhiều nhất thành lời diễn giải tiếng Việt, kèm kỹ thuật MITRE ATT&CK và biện pháp phòng ngừa. Hình 3.11 là thẻ mức 15 nhận được khi chạy SQL Injection vào DVWA, dòng cuối báo nguồn đã bị chặn tạm thời.
+
+![Mẫu thẻ cảnh báo bất thường gửi qua Telegram](docs/the_canh_bao_telegram.png)
+
+*Hình 3.11. Mẫu thẻ cảnh báo bất thường gửi qua Telegram*
 
 ![Trình tự cảnh báo, nâng mức và chặn nguồn](docs/luong_canh_bao.png)
 
+*Hình 3.12. Trình tự cảnh báo, nâng mức và chặn nguồn của nhánh bất thường*
+
 ## Thực nghiệm trên hệ thống triển khai
 
-Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Kết quả theo từng kịch bản tấn công (Chương 4 của báo cáo) sẽ cập nhật sau. Hình dưới là thẻ cảnh báo mức 15 nhận được khi thử SQL Injection vào DVWA, kèm kỹ thuật MITRE ATT&CK và các biện pháp phòng ngừa.
-
-![Thẻ cảnh báo mức 15 gửi qua Telegram](docs/the_canh_bao_telegram.png)
+Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Kết quả theo từng kịch bản tấn công (Chương 4 của báo cáo) sẽ cập nhật sau.
 
 ## Cấu trúc kho
 
 | Thư mục | Nội dung |
 |---|---|
-| (thư mục gốc) | Hai notebook huấn luyện `KLTN_BehaviorIF.ipynb`, `KLTN_WebAppIF.ipynb`; `behavior_features.py`, `web_features.py` (đặc trưng, tách đơn vị, huấn luyện, chấm điểm và chọn ngưỡng của từng mô-đun; notebook nạp và gọi các hàm này); `isolationforest.py` (Isolation Forest tự cài bằng NumPy); `anomaly.py` (chấm điểm trực tuyến trên `eve.json`) |
+| (thư mục gốc) | Hai notebook huấn luyện `1_KLTN_BehaviorIF.ipynb`, `2_KLTN_WebAppIF.ipynb`; `behavior_features.py`, `web_features.py` (đặc trưng, tách đơn vị, huấn luyện, chấm điểm và chọn ngưỡng của từng mô-đun; notebook nạp và gọi các hàm này); `isolationforest.py` (Isolation Forest tự cài bằng NumPy) |
+| `suricata/anomaly/` | Chương trình chạy trực tuyến trên Suricata_IDS: `anomaly.py` (điểm vào), `common.py`, `behavior.py` (hai tầng của Behavior-IF), `web.py` (Web-App IF), `whitelist.txt` (danh sách loại trừ của nhánh hành vi) |
+| `suricata/` | Rule thu thân POST, cấu hình eve-log và timeout luồng của Suricata_IDS |
 | `wazuh/` | Bộ rule Wazuh, script thông báo Telegram, script Active Response, dịch vụ systemd |
-| `suricata/` | Rule thu thân POST và cấu hình eve-log trên Suricata_IDS |
-| `docs/` | Hình minh họa trong README; các hình kết quả do hai notebook ghi ra |
+| `docs/` | Hình dùng trong README; các hình kết quả do hai notebook ghi ra |
 | `data/` | Đặt bộ dữ liệu vào đây (không đi kèm kho, xem `data/README.md`) |
