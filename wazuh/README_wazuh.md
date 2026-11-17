@@ -263,14 +263,18 @@ phỏng.
 có đầu bên kia vùng nạn nhân thuộc danh sách trước khi gom cửa sổ, ở cả Tầng 1 và Tầng 2; nhánh web không bị ảnh hưởng. Đây là
 tinh chỉnh khi vận hành chứ không thuộc mô hình: notebook và mọi số liệu đánh giá ở các mục trên không dùng danh sách này.
 
-Danh sách hiện có năm địa chỉ. Ba địa chỉ cuối (`50.19.149.4`, `23.21.189.113`, `137.59.44.88`) chưa ghi tên dịch vụ trong tệp.
-Hai địa chỉ đầu thuộc `edge.microsoft.com` (DNS `ax-0002.ax-msedge.net`), dịch vụ của trình duyệt Edge trên hai máy
+Danh sách hiện có năm địa chỉ. Hai địa chỉ đầu thuộc `edge.microsoft.com` (DNS `ax-0002.ax-msedge.net`), dịch vụ của trình duyệt Edge trên hai máy
 Windows sinh lưu lượng nền. Edge gọi dịch vụ này qua cả cổng 443 và 80 và nhiều kết nối không hoàn tất bắt tay, nên cửa sổ 2 phút
 có hai cổng, nhiều kết nối dở và nhịp đều, giống một lượt dò nhỏ. Mẫu này chiếm 154/226 cảnh báo nhầm Tầng 1 chiều ra trên tập
 kiểm định và 174/248 trên tập kiểm thử. Loại hai địa chỉ này thì cảnh báo nhầm của Tầng 1 chiều ra còn 0,23/giờ (kiểm định) và
 0,15/giờ (kiểm thử); Tầng 2 gần như không đổi (hai địa chỉ có 0 cảnh báo trên tập kiểm định, 1 trên tập kiểm thử); recall không
 đổi vì không lượt tấn công nào dùng hai địa chỉ này. Phát lại 2,5 ngày eve.json của lab (18-20/10/2026) bằng `--detect`: số cảnh
 báo Tầng 1 sau khi gom giảm từ 59 xuống 28, và cả 31 cảnh báo bị loại đều là cảnh báo tới hai địa chỉ này.
+
+Ba địa chỉ còn lại cũng là đích của hai máy Windows sinh lưu lượng nền, tên lấy theo SNI và DNS trong eve.json của lab
+(18-20/10/2026): `50.19.149.4` và `23.21.189.113` là `autodesk.com` (máy 192.168.10.201), `137.59.44.88` là
+`sg1.mobifone.vn.prod.hosts.ooklaserver.net`, máy chủ Speedtest của Ookla đặt tại MobiFone (máy 192.168.10.202). Số cảnh
+báo nhầm loại được nhờ ba địa chỉ này chưa đo.
 
 Mỗi mục là một vùng mù của nhánh hành vi, nên chỉ thêm khi đã tra rõ tên TLS/DNS của đích và ghi lý do. Địa chỉ của dịch vụ đám
 mây có thể đổi: khi thẻ cảnh báo của một đích quen quay lại, tra lại tên rồi cập nhật tệp và khởi động lại dịch vụ.

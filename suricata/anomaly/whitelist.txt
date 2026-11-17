@@ -9,6 +9,11 @@
 # Địa chỉ của Microsoft có thể đổi: khi thẻ cảnh báo Edge quay lại, tra lại tên TLS/DNS của đích rồi cập nhật.
 150.171.27.11
 150.171.28.11
+
+# autodesk.com (SNI và DNS trong eve.json của lab 18-20/10/2026): máy Windows 192.168.10.201 sinh lưu lượng nền kết nối TLS tới đây.
 50.19.149.4
 23.21.189.113
+
+# sg1.mobifone.vn.prod.hosts.ooklaserver.net (SNI trong eve.json của lab 18/10/2026): máy chủ Speedtest của Ookla đặt tại
+# MobiFone; máy Windows 192.168.10.202 sinh lưu lượng nền kết nối TLS cổng 8080 tới đây.
 137.59.44.88
