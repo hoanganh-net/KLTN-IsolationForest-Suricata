@@ -12,6 +12,66 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Cảnh báo được đẩy vào Wazuh, phân mức theo bộ rule riêng, gửi Telegram và chặn nguồn qua Active Response tại Suricata_IPS.
 
+## Thuật toán Isolation Forest
+
+Isolation Forest (Liu, Ting và Zhou, 2008) dựa trên hai đặc điểm của dữ liệu bất thường: số lượng ít và giá trị khác biệt. Khi chia không gian đặc trưng một cách ngẫu nhiên, điểm khác biệt bị tách riêng sau ít lần chia, còn điểm nằm trong vùng dữ liệu dày cần nhiều lần chia hơn. Thuật toán vì vậy không mô tả dữ liệu bình thường bằng khoảng cách hay mật độ mà đo trực tiếp mức dễ bị cô lập của từng điểm.
+
+![Minh họa cây cô lập và điểm bất thường của Isolation Forest](docs/isolation_forest.png)
+
+*Hình 1.1. Minh họa cây cô lập và điểm bất thường của Isolation Forest: mẫu bất thường nằm xa vùng dữ liệu dày nên bị tách riêng sau 2 lần chia (h(x) = 2), các nhánh chứa mẫu bình thường còn phải chia tiếp.*
+
+- **Cây cô lập (iTree)**: dựng trên một mẫu con ψ điểm lấy ngẫu nhiên, không lặp, từ tập huấn luyện. Tại mỗi nút, thuật toán chọn ngẫu nhiên một đặc trưng còn biến thiên và một giá trị chia nằm giữa giá trị nhỏ nhất và lớn nhất của đặc trưng đó. Nút thành lá khi còn không quá một điểm, không còn đặc trưng biến thiên hoặc đạt giới hạn độ sâu l = ⌈log₂ ψ⌉.
+- **Độ dài đường đi (path length)**: h(x) là số cạnh từ gốc tới lá chứa x. Lá còn n > 1 điểm chưa tách thì h(x) được cộng thêm c(n) = 2H(n − 1) − 2(n − 1)/n, với H(i) ≈ ln(i) + 0,5772, là path length trung bình của một lần tìm kiếm không thành công trong cây nhị phân tìm kiếm có n điểm.
+- **Điểm bất thường**: s(x, ψ) = 2^(−E(h(x))/c(ψ)), với E(h(x)) là trung bình h(x) trên t cây. Điểm gần 1 cho thấy x rất bất thường, điểm nhỏ hơn rõ so với 0,5 cho thấy x bình thường, còn nếu mọi điểm đều xấp xỉ 0,5 thì dữ liệu không có bất thường rõ.
+
+Pseudocode của bản tự cài (Hình 3.9 của báo cáo):
+
+```
+Fit(X, t, ψ)                      # tập huấn luyện X, số cây t, cỡ mẫu con ψ
+  F ← ∅;  l ← ⌈log₂ ψ⌉
+  for i = 1..t:
+    X' ← ψ điểm lấy ngẫu nhiên, không lặp, từ X
+    F ← F ∪ BuildTree(X', 0, l)
+  return F
+
+BuildTree(X, h, l)
+  if h ≥ l hoặc |X| ≤ 1: return Lá(|X|)
+  Q ← các đặc trưng còn biến thiên trong X
+  if Q = ∅: return Lá(|X|)
+  chọn ngẫu nhiên q ∈ Q và p ∈ [min q, max q]
+  return Nút(q, p, BuildTree({x ∈ X : x_q < p}, h + 1, l), BuildTree({x ∈ X : x_q ≥ p}, h + 1, l))
+
+Score(x, F)
+  với mỗi cây T ∈ F:  h_T(x) ← số cạnh từ gốc tới lá chứa x + c(số điểm tại lá)
+  return s(x) = 2^(−E[h(x)] / c(ψ))
+```
+
+### Áp dụng trong đề tài
+
+| Mô hình | Mẫu đưa vào rừng | Số đặc trưng | Tham chiếu bình thường |
+|---|---|---|---|
+| Behavior-IF, Tầng 1 | Cặp máy trong cửa sổ 2 phút | 5 | Riêng chiều ra, chiều vào |
+| Behavior-IF, Tầng 2 | Cặp máy trong cửa sổ 30 phút | 8 | Riêng chiều ra, chiều vào |
+| Web-Query IF | Giá trị tham số truy vấn, trường ngắn của thân POST | 11 | Một |
+| Web-Body IF | Văn bản tự do của thân POST | 11 | Một |
+
+Cả bốn mô hình dùng 300 cây, mẫu con 1.024 và seed cố định, không tinh chỉnh theo kết quả. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (Behavior-IF có gần một triệu mẫu huấn luyện ở Tầng 2 và gần 1,3 triệu ở Tầng 1), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
+
+Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có FPR kiểm định không quá 0,2% với Tầng 2 và hai mô hình web, không quá một cảnh báo nhầm mỗi giờ ở mỗi chiều với Tầng 1. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
+
+### Bản tự cài và bản scikit-learn
+
+`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc; số liệu của Tầng 2 và hai mô hình web trong README này tính trên bản tự cài. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn, và số liệu của Tầng 1 tính trên bản này. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
+
+| Mô hình | Dữ liệu so | Spearman giữa hai bản |
+|---|---|---|
+| Behavior-IF, Tầng 2 | 5.000 cửa sổ kiểm định chiều ra | 0,9939 |
+| Behavior-IF, Tầng 1 | Cửa sổ kiểm định chiều ra / chiều vào | 0,9971 / 0,9013 |
+| Web-Query IF | 30.668 đơn vị kiểm định | 0,9815 |
+| Web-Body IF | 15.053 giá trị kiểm định | 0,9896 |
+
+Hai bản cho cùng quyết định trên 99,94% cửa sổ kiểm thử của Tầng 2, 99,94% request GET và 99,43% request POST (Bảng 3.11 của báo cáo). `anomaly.py` cũng được kiểm tra bằng cách đưa dữ liệu kiểm thử qua đúng đường xử lý của nó: quyết định trùng với bản scikit-learn của notebook trên cả 39.217 request GET và 28.207 request POST.
+
 ## Chạy lại
 
 Môi trường: Python 3.13. Ô đầu của mỗi notebook cài đúng phiên bản dùng khi chốt số liệu (numpy 2.5.3, scikit-learn 1.9.1, pandas 3.0.5) cùng scipy, matplotlib, joblib và gdown; khác phiên bản thì cây có thể khác đôi chút.
@@ -104,12 +164,6 @@ Tầng 2 phát hiện 531 trong 532 lượt và phiên tấn công (99,81%), rec
 *Hình 3.8. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với command injection và path traversal trên tập kiểm thử*
 
 Mỗi nửa của hình phân bố điểm so giá trị hợp lệ với giá trị mang tấn công của nhóm, kèm ngưỡng của mô hình; cột ở điểm 1,0 là các giá trị bị bước kiểm tra miền gán điểm 1. SQL Injection và XSS nằm xa ngưỡng ở cả hai mô hình; command injection và path traversal sát ngưỡng hơn, nhất là ở văn bản tự do, và là điểm yếu của mô-đun.
-
-### Kiểm chứng
-
-- Isolation Forest tự cài xếp hạng gần như trùng scikit-learn: hệ số Spearman từ 0,98 đến 0,997, riêng chiều vào của Tầng 1 là 0,90.
-- `anomaly.py` chấm lại tập kiểm thử và cho cùng quyết định với notebook.
-- Số liệu của Tầng 2 và hai mô hình web tính trên bản tự cài, của Tầng 1 trên bản scikit-learn.
 
 ## Xử lý cảnh báo trên Wazuh
 

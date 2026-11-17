@@ -36,8 +36,8 @@ def c_factor_arr(n):
 
 # ---- Một cây cô lập (iTree) ----
 class IsolationTree:
-    """Một cây cô lập. Nút được lưu trong các mảng song song để chấm điểm nhanh,
-    nhưng logic xây cây vẫn đúng mạch split_data/Node ở test.ipynb."""
+    """Một cây cô lập. Nút được lưu trong các mảng song song để chấm điểm nhanh; cách dựng cây theo pseudocode
+    BuildTree ở README (Hình 3.9 của báo cáo)."""
 
     def __init__(self, height_limit, rng):
         self.height_limit = height_limit      # chặn độ cao ~ ceil(log2(psi))
