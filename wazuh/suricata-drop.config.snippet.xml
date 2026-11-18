@@ -22,7 +22,7 @@
 </active-response>
 
 <!-- 3) Active response: 100309 (nghi do mat khau / lam ngap tu nguon don) -> suricata-drop tren agent IPS (003),
-     chan 15s roi tu go. Cung command/timeout voi 100312; khac la kich som tren MOT hanh vi thay vi cho du am luong. -->
+     chan 15s roi tu go. Cung command/timeout voi 100312; khac la kich som tren MOT hanh vi thay vi cho du so lan tai dien. -->
 <active-response>
   <command>suricata-drop</command>
   <location>defined-agent</location>
