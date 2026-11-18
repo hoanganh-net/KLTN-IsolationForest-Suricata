@@ -55,13 +55,13 @@ Score(x, F)
 | Web-Query IF | Giá trị tham số truy vấn, trường ngắn của thân POST | 11 | Một |
 | Web-Body IF | Văn bản tự do của thân POST | 11 | Một |
 
-Cả bốn mô hình dùng 300 cây, mẫu con 1.024 và seed cố định, không tinh chỉnh theo kết quả. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (Behavior-IF có gần một triệu mẫu huấn luyện ở Tầng 2 và gần 1,3 triệu ở Tầng 1), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
+Cả bốn mô hình dùng 300 cây, mẫu con 1.024 và seed cố định, không tinh chỉnh theo kết quả. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (Behavior-IF có gần 1,3 triệu mẫu huấn luyện ở Tầng 1 và gần một triệu ở Tầng 2), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
 
-Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có FPR kiểm định không quá 0,2% với Tầng 2 và hai mô hình web, không quá một cảnh báo nhầm mỗi giờ ở mỗi chiều với Tầng 1. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
+Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có không quá một cảnh báo nhầm mỗi giờ ở mỗi chiều với Tầng 1, có FPR kiểm định không quá 0,2% với Tầng 2 và hai mô hình web. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
 
 ### Bản tự cài và bản scikit-learn
 
-`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc; số liệu của Tầng 2 và hai mô hình web trong README này tính trên bản tự cài. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn, và số liệu của Tầng 1 tính trên bản này. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
+`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn. Số liệu của Tầng 1 trong README này tính trên bản scikit-learn, còn số liệu của Tầng 2 và hai mô hình web tính trên bản tự cài. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
 
 | Mô hình | Dữ liệu so | Spearman giữa hai bản |
 |---|---|---|
@@ -117,7 +117,7 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Kết quả trên tập kiểm thử
 
-Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Tầng 2 và hai mô hình web theo FPR không vượt 0,2%, Tầng 1 theo số cảnh báo nhầm không quá một mỗi giờ; tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
+Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Tầng 1 theo số cảnh báo nhầm không quá một mỗi giờ, Tầng 2 và hai mô hình web theo FPR không vượt 0,2%. Tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
 
 ### Behavior-IF
 
@@ -127,7 +127,7 @@ Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡn
 | Cửa sổ bình thường chiều vào bị gắn cờ, tập kiểm thử | 0 / 7.158 | 0 / 526 |
 | Trung vị độ trễ với hành vi dồn dập | 6 đến 100 giây | 13 đến 31 phút |
 
-Tầng 2 phát hiện 531 trong 532 lượt và phiên tấn công (99,81%), recall theo cửa sổ 97,08%, FPR chiều ra 0,146% trên tập kiểm thử so với 0,141% trên tập kiểm định. Tầng 1 bắt toàn bộ hành vi dồn dập: 109 lượt dò quét vùng quản trị, 118 lượt dò đăng nhập SSH, 2 phiên dò quét và 3 phiên flooding từ bên ngoài, 11 phiên gửi payload web; hành vi kéo dài do Tầng 2 đảm nhận.
+Tầng 1 bắt toàn bộ hành vi dồn dập: 109 lượt dò quét vùng quản trị, 118 lượt dò đăng nhập SSH, 2 phiên dò quét và 3 phiên flooding từ bên ngoài, 11 phiên gửi payload web. Tầng 2 đảm nhận hành vi kéo dài, phát hiện 531 trong 532 lượt và phiên tấn công (99,81%), recall theo cửa sổ 97,08%, FPR chiều ra 0,146% trên tập kiểm thử so với 0,141% trên tập kiểm định.
 
 ![Recall của Tầng 2 theo hành vi](docs/behavior_if_recall.png)
 
@@ -181,7 +181,21 @@ Thẻ Telegram chuyển các đặc trưng lệch nhiều nhất thành lời di
 
 ## Thực nghiệm trên hệ thống triển khai
 
-Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Kết quả theo từng kịch bản tấn công (Chương 4 của báo cáo) sẽ cập nhật sau.
+Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy thông: anomaly.py gắn cờ, Wazuh phân mức, thẻ cảnh báo gửi qua Telegram, Active Response chặn nguồn trên Suricata_IPS và tự gỡ chặn khi hết hạn. Các lượt đã chạy (Chương 4 của báo cáo):
+
+| Kịch bản | Mô hình gắn cờ | Điểm | Rule Wazuh | Chặn nguồn |
+|---|---|---|---|---|
+| Dò quét cổng và dịch vụ, từ ngoài vào | Tầng 1 | 0,772 | 100308 (mức 12) | Không |
+| Brute-force SSH | Tầng 1, nhãn brute | 0,686 | 100309 (mức 12) | Có |
+| Làm ngập dịch vụ | Tầng 1, nhãn flood | 0,748 | 100309 (mức 12) | Có |
+| Dò quét vùng quản trị, từ máy nạn nhân | Tầng 1 | 0,805 | 100308 (mức 12) | Không |
+| SQL Injection | Web-Query IF | 0,772 | 100305 (mức 12) | Không |
+| XSS lưu trữ | Web-Body IF | 0,713 | 100305 (mức 12) | Không |
+| XSS phản chiếu | Web-Query IF, kiểm tra miền | 1,000 | 100305 (mức 12) | Không |
+| Command injection | Web-Query IF | 0,670 | 100306 (mức 10) | Không |
+| Path traversal | Web-Query IF | 0,725 | 100305 (mức 12) | Không |
+
+Các lượt Tầng 1 có số đo được báo sau 7 đến 38 giây kể từ luồng đầu tiên của cửa sổ. Mỗi lượt web bị gắn cờ ngay từ một request. Chuỗi tấn công web liên tục đạt điều kiện của rule 100312 và bị chặn bốn lần. Các kịch bản kênh C2, exfiltration và khai thác lỗ hổng sẽ bổ sung khi chạy xong.
 
 ## Cấu trúc kho
 
