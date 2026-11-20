@@ -219,7 +219,7 @@ lượt tấn công đơn cặp của tập kiểm thử chỉ sinh từ một �
 (5 trong 5 phút) và 100312 (10 trong 10 phút). Active Response theo tần suất vì vậy chỉ chặn nguồn tái diễn dai dẳng: chuỗi
 request web bị gắn cờ (nhánh web không gom), hoặc một nguồn gây bất thường trên nhiều máy đích trong thời gian ngắn (mỗi cặp
 là một sự cố riêng). Chặn tự động theo một cảnh báo hành vi đơn lẻ không mang nhãn dễ cô lập nhầm máy hợp lệ: trên tập
-kiểm thử, chiều ra vẫn có 1,99 cảnh báo nhầm mỗi giờ.
+kiểm thử, chiều ra vẫn có 0,71 cảnh báo nhầm mỗi giờ.
 
 ## Số cảnh báo của một lượt tấn công
 
@@ -230,7 +230,7 @@ nhãn `brute`, `flood`. Cảnh báo thứ hai trở đi của một lượt là 
 | Hành vi | Số lượt | Cảnh báo mỗi lượt: trung vị (ít nhất - nhiều nhất) |
 |---|---|---|
 | scan_mgmt: dò cổng 1-1024 tới một máy | 109 | 1 (1-1) |
-| auth_mgmt: 40 lần đăng nhập SSH lỗi | 118 | 1 (1-2) |
+| auth_mgmt: 40 lần đăng nhập SSH lỗi | 118 | 2 (1-3) |
 | exfil: exfiltration | 85 | 1 (1-1) |
 | download: tải công cụ | 101 | 1 (1-2) |
 | scan_in: dò quét từ bên ngoài | 2 | 2 (1-2) |
@@ -243,7 +243,7 @@ nhớ của anomaly.py: lượt lặp lại trên cùng cặp trong vòng 15 ph�
 cuối được gộp vào sự cố cũ và không sinh thẻ mới, trừ khi mức độ tăng hoặc đặc trưng lệch nhất đổi. Khởi động lại dịch vụ
 không xóa trạng thái này, vì engine dựng lại sự cố từ hai giờ cuối của nhật ký. Khi tập dượt trước buổi trình diễn, dùng cặp
 máy khác, chờ hết thời gian gom hoặc đặt `ANOMALY_RT_QUIET_MIN` nhỏ hơn. Trên phần bình thường của tập kiểm thử, nhánh hành
-vi sinh 1,99 cảnh báo nhầm mỗi giờ, đều ở chiều ra.
+vi sinh 0,71 cảnh báo nhầm mỗi giờ, đều ở chiều ra.
 
 ## Rút ngắn độ trễ
 
@@ -285,9 +285,9 @@ lại cũng là đích của hai máy Windows sinh lưu lượng nền, tên l�
 `50.19.149.4` và `23.21.189.113` là `autodesk.com` (máy 192.168.10.201), `137.59.44.88` là
 `sg1.mobifone.vn.prod.hosts.ooklaserver.net`, máy chủ Speedtest của Ookla đặt tại MobiFone (máy 192.168.10.202).
 
-Với mô hình hiện tại (cửa sổ 30 giây, ngưỡng chiều ra 0,6388), các địa chỉ này vẫn sinh cảnh báo nếu không loại trừ: khi phát
-lại một lát 28 giờ của tập kiểm thử qua engine, 8 trong 121 cảnh báo chiều ra là tới hai địa chỉ của Edge. Danh sách vì vậy
-được giữ nguyên.
+Với mô hình hiện tại (cửa sổ 30 giây, ngưỡng chiều ra 0,6975), hai địa chỉ của Edge vẫn là nguồn tập trung nhất của các cửa sổ
+hợp lệ có điểm cao: khoảng một phần tư số cửa sổ huấn luyện có điểm trên 0,64 là tới hai địa chỉ này. Danh sách vì vậy được
+giữ nguyên.
 
 Mỗi mục là một vùng mù của nhánh hành vi, nên chỉ thêm khi đã tra rõ tên TLS/DNS của đích và ghi lý do. Địa chỉ của dịch vụ đám
 mây có thể đổi: khi thẻ cảnh báo của một đích quen quay lại, tra lại tên rồi cập nhật tệp và khởi động lại dịch vụ.
