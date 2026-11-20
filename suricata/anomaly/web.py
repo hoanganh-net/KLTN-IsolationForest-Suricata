@@ -19,6 +19,26 @@ def _in_web_targets(ip):
     except Exception: return False
 
 
+# Thời gian phát hiện của Web-App IF: giờ phát cảnh báo trừ lúc Suricata ghi nhận request (cùng đồng hồ Suricata_IDS).
+_TZ_WEB = re.compile(r"([+-]\d{2})(\d{2})$")
+def _epoch_web(ts):
+    if not ts: return None
+    s = str(ts)
+    try: return datetime.fromisoformat(s).timestamp()
+    except ValueError:
+        try: return datetime.fromisoformat(_TZ_WEB.sub(r"\1:\2", s)).timestamp()
+        except ValueError: return None
+def _web_time(req_ts):
+    """Trường thời gian kèm cảnh báo web: thời điểm request (req_time) và độ trễ phát hiện (lat_s) khi chạy live."""
+    out = {}
+    if req_ts: out["req_time"] = req_ts
+    ep = _epoch_web(req_ts)
+    if ep is not None:
+        lat = round(time.time() - ep, 1)
+        if 0 <= lat <= 3600: out["lat_s"] = lat
+    return out
+
+
 # Thẻ định dạng được phép trong văn bản tự do theo chính sách của ứng dụng (mặc định kses.php của WordPress, joblib
 # ghi đè được). Đây là chính sách của ứng dụng, không phải chữ ký tấn công.
 _URI_ATTRS = {"href", "cite"}
@@ -347,11 +367,12 @@ def _build_web(model_path="web_app_if_model.joblib"):
                     done[tx] = None
                     if len(done) > 100000: done.popitem(last=False)
                 if not _in_web_targets(rec["dest_ip"]): continue   # chỉ chấm http đi vào web server bảo vệ
+                wt = _web_time(o.get("timestamp"))                 # thời điểm request + độ trễ phát hiện
                 for module, lab, sc, reasons, thr, oor in _route_and_score(rec, mq, mb):
                     _emit({"module": module, "time": datetime.now().isoformat(timespec="seconds"),
                            "src_ip": rec["src_ip"], "dest_ip": rec["dest_ip"], "host": rec["host"],
                            "method": rec["method"], "url": rec["url"], "location": lab, "score": sc,
-                           "thr": thr, "reasons": reasons, **({"out_of_range": oor} if oor else {})})
+                           "thr": thr, "reasons": reasons, **wt, **({"out_of_range": oor} if oor else {})})
             time.sleep(iv)
 
     return types.SimpleNamespace(detect=detect, live=live)

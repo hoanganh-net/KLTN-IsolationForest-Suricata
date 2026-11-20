@@ -77,6 +77,18 @@ def episode_line(data):
         parts.append("⚡ <b>Phát hiện</b> sau {0:.0f} giây kể từ đầu cửa sổ".format(_num(data.get("t_det_s"))))
     return " | ".join(parts)
 
+def web_time_line(data):
+    """Dòng thời điểm và thời gian phát hiện cho cảnh báo web, cho tương đương cảnh báo hành vi; rỗng nếu anomaly.py
+    cũ chưa ghi các trường này."""
+    parts = []
+    rt = data.get("req_time")
+    if rt:
+        parts.append("🕒 <b>Thời điểm</b> {0}".format(e(_ts(rt))))
+    lat = _num(data.get("lat_s"))
+    if lat is not None and 0 <= lat <= 3600:
+        parts.append("⚡ <b>Phát hiện</b> sau {0:.0f} giây kể từ khi request được ghi nhận".format(lat))
+    return " | ".join(parts)
+
 # --- Từ điển 1: diễn giải z-score sang tiếng Việt (11 đặc trưng hành vi + 13 đặc trưng từ vựng web) ---
 ZSCORE_VI = {
     # Behavior-IF (flow)
@@ -389,6 +401,9 @@ def build_message(rule, data):
     if module in BEH_MODULES:
         ep = episode_line(data)
         if ep: L.append(ep)
+    elif module in ("anomaly_web", "anomaly_web_body"):
+        wl = web_time_line(data)
+        if wl: L.append(wl)
 
     reasons = parse_reasons(why)
     if reasons:
