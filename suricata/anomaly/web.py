@@ -68,7 +68,7 @@ def bo_the_duoc_phep(s, policy, protocols):
 # ---- Web-App IF: bản ghi http (Web-Query cho tham số và trường ngắn POST, Web-Body cho văn bản tự do) ----
 def _build_web(model_path="web_app_if_model.joblib"):
     FEATS = ["log_len", "r_nonalnum", "r_digit", "r_upper", "entropy", "n_squote", "n_dquote",
-             "n_angle", "n_paren", "n_punct_inj", "n_kw", "n_pct", "max_run_sym"]
+             "n_angle", "n_paren", "n_punct_inj", "n_kw", "n_pct", "max_run_sym", "n_slash"]
     # Tên trường văn bản tự do của ứng dụng được bảo vệ (WordPress, DVWA), luôn chấm bằng Web-Body.
     FREE_FIELDS = {"your-message", "content", "comment", "your-subject", "title", "message", "body", "mtxMessage"}
     _FREE_ENV = os.environ.get("WEB_FREE_FIELDS", "")   # cho phép bổ sung lúc chạy: WEB_FREE_FIELDS=f1,f2
@@ -109,7 +109,8 @@ def _build_web(model_path="web_app_if_model.joblib"):
         return [math.log1p(n), nonalnum / n, digit / n, upper / n, _entropy(s),
                 float(s.count("'")), float(s.count('"')), float(s.count("<") + s.count(">")),
                 float(s.count("(") + s.count(")")), float(sum(s.count(c) for c in _INJ)),
-                float(len(_KW.findall(s))), float(len(_PCT.findall(s))), float(_max_run_symbol(s))]
+                float(len(_KW.findall(s))), float(len(_PCT.findall(s))), float(_max_run_symbol(s)),
+                float(s.count("/") + s.count("\\"))]
 
     def decode_once(s):
         # Byte 0 (%00 sau khi giải mã) ghi lại thành chữ %00, giống bộ dữ liệu huấn luyện

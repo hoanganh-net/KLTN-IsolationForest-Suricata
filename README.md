@@ -7,8 +7,8 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Đề tài xây dựng nhánh phát hiện bất thường chạy song song với nhánh chữ ký của Suricata, gồm hai mô-đun Isolation Forest học không giám sát trên nhật ký `eve.json`:
 
-- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian, cho cả chiều ra và chiều vào. Mô-đun có hai tầng: Tầng 1 (cảnh báo nhanh) dùng cửa sổ 2 phút và 5 đặc trưng để báo sớm hành vi dồn dập như dò quét, dò đăng nhập, làm ngập; Tầng 2 dùng cửa sổ 30 phút và 8 đặc trưng để phát hiện hành vi kéo dài như kênh C2, tải công cụ, exfiltration. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của tầng đó chỉ ghi kèm cảnh báo để diễn giải.
-- **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Rừng chấm trên 11 đặc trưng từ vựng; ký tự `<`, `>` và chuỗi percent-encoding còn sót sau khi giải mã được tách sang bước kiểm tra miền của giá trị ngắn.
+- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian. Mô-đun có hai tham chiếu bình thường theo bên khởi tạo kết nối. Chiều ra (máy nạn nhân khởi tạo) dùng cửa sổ 30 phút và 9 đặc trưng, phát hiện cả hành vi dồn dập như dò quét, dò đăng nhập lẫn hành vi kéo dài như kênh C2, tải công cụ, exfiltration. Chiều vào (bên ngoài khởi tạo) dùng cửa sổ 2 phút và 5 đặc trưng cho dò quét, dò đăng nhập, làm ngập. Cửa sổ được chấm lại khi còn mở nên hành vi dồn dập được báo sớm. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của chiều đó chỉ ghi kèm cảnh báo để diễn giải.
+- **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Rừng chấm trên 11 đặc trưng từ vựng, riêng Web-Query IF thêm `n_slash` (số dấu gạch chéo); ký tự `<`, `>` và chuỗi percent-encoding còn sót sau khi giải mã được tách sang bước kiểm tra miền của giá trị ngắn.
 
 Cảnh báo được đẩy vào Wazuh, phân mức theo bộ rule riêng, gửi Telegram và chặn nguồn qua Active Response tại Suricata_IPS.
 
@@ -48,29 +48,29 @@ Score(x, F)
 
 ### Áp dụng trong đề tài
 
-| Mô hình | Mẫu đưa vào rừng | Số đặc trưng | Tham chiếu bình thường |
+| Mô hình | Mẫu đưa vào rừng | Số đặc trưng | Mẫu con |
 |---|---|---|---|
-| Behavior-IF, Tầng 1 | Cặp máy trong cửa sổ 2 phút | 5 | Riêng chiều ra, chiều vào |
-| Behavior-IF, Tầng 2 | Cặp máy trong cửa sổ 30 phút | 8 | Riêng chiều ra, chiều vào |
-| Web-Query IF | Giá trị tham số truy vấn, trường ngắn của thân POST | 11 | Một |
-| Web-Body IF | Văn bản tự do của thân POST | 11 | Một |
+| Behavior-IF, chiều ra | Cặp máy trong cửa sổ 30 phút | 9 | 65.536 |
+| Behavior-IF, chiều vào | Cặp máy trong cửa sổ 2 phút | 5 | 1.024 |
+| Web-Query IF | Giá trị tham số truy vấn, trường ngắn của thân POST | 12 | 1.024 |
+| Web-Body IF | Văn bản tự do của thân POST | 11 | 1.024 |
 
-Cả bốn mô hình dùng 300 cây, mẫu con 1.024 và seed cố định, không tinh chỉnh theo kết quả. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (Behavior-IF có gần 1,3 triệu mẫu huấn luyện ở Tầng 1 và gần một triệu ở Tầng 2), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
+Cả bốn rừng dùng 300 cây và seed cố định. Mẫu con là 1.024, riêng rừng chiều ra của Behavior-IF dùng 65.536 vì ngưỡng của nó nằm ở phân vị 99,98% của điểm huấn luyện: mẫu con 1.024 trung bình chỉ chứa 0,2 mẫu nằm ngoài phân vị này, còn mẫu con 65.536 chứa khoảng 13 mẫu. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (chiều ra của Behavior-IF có 950.668 cửa sổ huấn luyện), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
 
-Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có không quá một cảnh báo nhầm mỗi giờ ở mỗi chiều với Tầng 1, có FPR kiểm định không quá 0,2% với Tầng 2 và hai mô hình web. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
+Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có không quá một cảnh báo nhầm mỗi giờ ở mỗi chiều với Behavior-IF, có FPR kiểm định không quá 0,2% với hai mô hình web. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
 
 ### Bản tự cài và bản scikit-learn
 
-`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn. Số liệu của Tầng 1 trong README này tính trên bản scikit-learn, còn số liệu của Tầng 2 và hai mô hình web tính trên bản tự cài. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
+`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn. Số liệu của Behavior-IF trong README này tính trên bản scikit-learn, còn số liệu của hai mô hình web tính trên bản tự cài. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
 
 | Mô hình | Dữ liệu so | Spearman giữa hai bản |
 |---|---|---|
-| Behavior-IF, Tầng 2 | 5.000 cửa sổ kiểm định chiều ra | 0,9939 |
-| Behavior-IF, Tầng 1 | Cửa sổ kiểm định chiều ra / chiều vào | 0,9971 / 0,9013 |
-| Web-Query IF | 30.668 đơn vị kiểm định | 0,9815 |
+| Behavior-IF, chiều ra | 5.000 cửa sổ kiểm định | 0,9861 |
+| Behavior-IF, chiều vào | 5.000 cửa sổ kiểm định | 0,9013 |
+| Web-Query IF | 30.668 đơn vị kiểm định | 0,9770 |
 | Web-Body IF | 15.053 giá trị kiểm định | 0,9896 |
 
-Hai bản cho cùng quyết định trên 99,94% cửa sổ kiểm thử của Tầng 2, 99,94% request GET và 99,43% request POST (Bảng 3.11 của báo cáo). `anomaly.py` cũng được kiểm tra bằng cách đưa dữ liệu kiểm thử qua đúng đường xử lý của nó: quyết định trùng với bản scikit-learn của notebook trên cả 39.217 request GET và 28.207 request POST.
+Hai bản cho cùng quyết định trên cả 917 cửa sổ tấn công chiều ra, 99,22% trong 129 cửa sổ tấn công chiều vào, 99,75% request GET và 99,37% request POST (Bảng 3.9 của báo cáo). `anomaly.py` cũng được kiểm tra bằng cách đưa dữ liệu kiểm thử qua đúng đường xử lý của nó. Với Web-App IF, quyết định trùng với bản scikit-learn của notebook trên cả 39.217 request GET và 28.207 request POST. Với Behavior-IF, hai lát 28 giờ của tập kiểm thử được phát lại qua engine: engine phát 121 cảnh báo ở lát chiều ra và 11 ở lát chiều vào, trùng với cách đếm của notebook.
 
 ## Chạy lại
 
@@ -83,7 +83,7 @@ python -m venv .venv
 .venv\Scripts\jupyter nbconvert --to notebook --execute --inplace 2_KLTN_WebAppIF.ipynb
 ```
 
-Chạy theo số trong tên tệp: `1_KLTN_BehaviorIF.ipynb` trước, vì notebook này tải cả bộ dữ liệu về `data/`; rồi `2_KLTN_WebAppIF.ipynb`, notebook này chỉ đọc `data/` chứ không tự tải. Cả hai cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Notebook 1 xuất `net_if_model.joblib` (cả hai tầng của Behavior-IF), notebook 2 xuất `web_app_if_model.joblib`; chương trình trong `suricata/anomaly/` nạp hai tệp này khi chạy trực tuyến.
+Chạy theo số trong tên tệp: `1_KLTN_BehaviorIF.ipynb` trước, vì notebook này tải cả bộ dữ liệu về `data/`; rồi `2_KLTN_WebAppIF.ipynb`, notebook này chỉ đọc `data/` chứ không tự tải. Cả hai cần `behavior_features.py`, `web_features.py` và `isolationforest.py` nằm cùng thư mục. Notebook 1 xuất `net_if_model.joblib` (hai tham chiếu của Behavior-IF), notebook 2 xuất `web_app_if_model.joblib`; chương trình trong `suricata/anomaly/` nạp hai tệp này khi chạy trực tuyến.
 
 ## Luồng dữ liệu
 
@@ -103,13 +103,13 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Cơ chế chấm
 
-![Cửa sổ trượt 2 phút, bước 1 phút của Tầng 1](docs/cua_so_truot_tang1.png)
+![Cửa sổ trượt 30 phút, bước 15 phút của chiều ra](docs/cua_so_truot_chieu_ra.png)
 
-*Tầng 1: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng.*
+*Behavior-IF, chiều ra: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng. Cửa sổ chốt 75 giây sau thời điểm cuối.*
 
-![Cửa sổ trượt 30 phút, bước 15 phút của Tầng 2](docs/cua_so_truot.png)
+![Cửa sổ trượt 2 phút, bước 1 phút của chiều vào](docs/cua_so_truot_chieu_vao.png)
 
-*Tầng 2: chấm mỗi cửa sổ một lần, 6 phút sau khi cửa sổ đóng.*
+*Behavior-IF, chiều vào: cùng cách chấm, cửa sổ 2 phút.*
 
 ![Trường đọc và mô hình chấm của Web-App IF](docs/web_app_if_co_che.png)
 
@@ -117,35 +117,36 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Kết quả trên tập kiểm thử
 
-Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Tầng 1 theo số cảnh báo nhầm không quá một mỗi giờ, Tầng 2 và hai mô hình web theo FPR không vượt 0,2%. Tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
+Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Behavior-IF theo số cảnh báo nhầm không quá một mỗi giờ ở mỗi chiều, hai mô hình web theo FPR không vượt 0,2%. Tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
 
 ### Behavior-IF
 
-| Chỉ số | Tầng 1 | Tầng 2 |
+| Chỉ số | Chiều ra | Chiều vào |
 |---|---|---|
-| Cảnh báo nhầm mỗi giờ chiều ra, kiểm định / kiểm thử | 0,71 / 0,49 | 1,27 / 0,75 |
-| Cửa sổ bình thường chiều vào bị gắn cờ, tập kiểm thử | 0 / 7.158 | 0 / 526 |
-| Trung vị độ trễ với hành vi dồn dập | 6 đến 100 giây | 13 đến 31 phút |
+| Cảnh báo nhầm mỗi giờ, kiểm định / kiểm thử | 0,46 / 0,27 | 0 / 0 |
+| Cửa sổ bình thường bị gắn cờ trên tập kiểm thử | 180 / 419.842 (0,043%) | 0 / 7.158 |
+| Lượt, phiên tấn công được phát hiện | 516 / 516 | 16 / 16 |
+| Cửa sổ tấn công được phát hiện | 1.228 / 1.262 | 117 / 129 |
 
-Tầng 1 bắt toàn bộ hành vi dồn dập: 109 lượt dò quét vùng quản trị, 118 lượt dò đăng nhập SSH, 2 phiên dò quét và 3 phiên flooding từ bên ngoài, 11 phiên gửi payload web. Tầng 2 đảm nhận hành vi kéo dài, phát hiện 531 trong 532 lượt và phiên tấn công (99,81%), recall theo cửa sổ 97,08%, FPR chiều ra 0,146% trên tập kiểm thử so với 0,141% trên tập kiểm định.
+Behavior-IF phát hiện 532 trong 532 lượt và phiên tấn công của tập kiểm thử, recall theo cửa sổ 96,69%. Nhờ chấm khi cửa sổ còn mở, trung vị độ trễ của nhóm hành vi dồn dập (dò quét, dò đăng nhập, làm ngập, gửi payload web) là 6 đến 100 giây, so với 156 đến 625 giây nếu chỉ chấm lúc cửa sổ đóng. Bốn hành vi kéo dài (exfiltration, tải công cụ, hai dạng kênh C2) được báo sau trung vị 112 đến 218 giây (Bảng 3.5 của báo cáo). Độ trễ tính theo giờ thật từ luồng đầu tiên của lượt, phần lớn là thời gian chờ Suricata ghi bản ghi flow. Bộ đặc trưng, độ dài cửa sổ và kích thước mẫu con của chiều ra được chọn trên 317 lượt của tập kiểm thử, nên số liệu trên các lượt này có thể lạc quan hơn thực tế. Cả 199 lượt không dùng khi chọn đều được phát hiện.
 
-![Recall của Tầng 2 theo hành vi](docs/behavior_if_recall.png)
+![Recall của Behavior-IF theo hành vi](docs/behavior_if_recall.png)
 
-*Hình 3.3. Recall của Tầng 2 theo hành vi trên tập kiểm thử*
+*Hình 3.3. Recall của Behavior-IF theo hành vi trên tập kiểm thử*
 
-![Phân bố điểm của cửa sổ chiều ra ở Tầng 2](docs/behavior_if_phan_bo_diem.png)
+![Phân bố điểm của cửa sổ chiều ra](docs/behavior_if_phan_bo_diem.png)
 
-*Hình 3.4. Phân bố điểm bất thường của cửa sổ chiều ra ở Tầng 2 trên tập kiểm thử*
+*Hình 3.4. Phân bố điểm bất thường của cửa sổ chiều ra trên tập kiểm thử*
 
 ### Web-App IF
 
 | Chỉ số | GET | POST |
 |---|---|---|
-| Tấn công gửi tay trên trang thực nghiệm | 99,78% | 77 / 79 |
-| Recall trên tập kiểm thử (bốn loại) | 97,03% | 88,72% |
-| Recall riêng SQL Injection và XSS | 99,62% | 96,00% |
+| Tấn công gửi tay trên trang thực nghiệm | 99,78% | 75 / 79 |
+| Recall trên tập kiểm thử (bốn loại) | 98,12% | 89,29% |
+| Recall riêng SQL Injection và XSS | 99,49% | 95,95% |
 | FPR trên request hợp lệ do script duyệt web tạo | 0% | 0% |
-| FPR chung trên tập kiểm thử | 0,533% | 0,534% |
+| FPR chung trên tập kiểm thử | 0,426% | 0,509% |
 
 ![Recall của Web-App IF với SQL Injection và XSS](docs/web_app_if_recall_sqli_xss.png)
 
@@ -167,7 +168,7 @@ Mỗi nửa của hình phân bố điểm so giá trị hợp lệ với giá t
 
 ## Xử lý cảnh báo trên Wazuh
 
-Wazuh ghi nhận mỗi cảnh báo ở mức 10 và nâng lên mức 12 khi điểm cao. Cảnh báo Tầng 1 đi nhánh riêng: 100307 ở mức 10, 100308 ở mức 12 khi điểm cao, 100309 ở mức 12 khi Tầng 1 gán nhãn brute hoặc flood. Một nguồn có từ 5 cảnh báo trong 300 giây thì lên mức 13 (100311), từ 10 cảnh báo trong 600 giây thì lên mức 15 (100312). Active Response chặn IP nguồn tại Suricata_IPS trong 15 giây theo hai đường: rule 100312 với nguồn tái diễn và rule 100309 với nguồn mang nhãn brute hoặc flood; dò quét chỉ được cảnh báo. Bộ rule và cách cài đặt nằm trong [`wazuh/README_wazuh.md`](wazuh/README_wazuh.md).
+Wazuh ghi nhận mỗi cảnh báo ở mức 10 và nâng lên mức 12 khi điểm cao. Cảnh báo Behavior-IF đi nhánh riêng: 100307 ở mức 10, 100308 ở mức 12 khi điểm cao, 100309 ở mức 12 khi cảnh báo mang nhãn brute hoặc flood. Một nguồn có từ 5 cảnh báo trong 300 giây thì lên mức 13 (100311), từ 10 cảnh báo trong 600 giây thì lên mức 15 (100312). Active Response chặn IP nguồn tại Suricata_IPS trong 15 giây theo hai đường: rule 100312 với nguồn tái diễn và rule 100309 với nguồn mang nhãn brute hoặc flood; dò quét chỉ được cảnh báo. Bộ rule và cách cài đặt nằm trong [`wazuh/README_wazuh.md`](wazuh/README_wazuh.md).
 
 Thẻ Telegram chuyển các đặc trưng lệch nhiều nhất thành lời diễn giải tiếng Việt, kèm kỹ thuật MITRE ATT&CK và biện pháp phòng ngừa. Hình 3.11 là thẻ mức 15 nhận được khi chạy SQL Injection vào DVWA, dòng cuối báo nguồn đã bị chặn tạm thời.
 
@@ -185,24 +186,24 @@ Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy th�
 
 | Kịch bản | Mô hình gắn cờ | Điểm | Rule Wazuh | Chặn nguồn |
 |---|---|---|---|---|
-| Dò quét cổng và dịch vụ, từ ngoài vào | Tầng 1 | 0,772 | 100308 (mức 12) | Không |
-| Brute-force SSH | Tầng 1, nhãn brute | 0,686 | 100309 (mức 12) | Có |
-| Làm ngập dịch vụ | Tầng 1, nhãn flood | 0,748 | 100309 (mức 12) | Có |
-| Dò quét vùng quản trị, từ máy nạn nhân | Tầng 1 | 0,805 | 100308 (mức 12) | Không |
+| Dò quét cổng và dịch vụ, từ ngoài vào | Behavior-IF, chiều vào | 0,691 | 100308 (mức 12) | Không |
+| Brute-force SSH | Behavior-IF, chiều vào, nhãn brute | 0,686 | 100309 (mức 12) | Có |
+| Làm ngập dịch vụ | Behavior-IF, chiều vào, nhãn flood | 0,748 | 100309 (mức 12) | Có |
+| Dò quét vùng quản trị, từ máy nạn nhân | Behavior-IF, chiều ra | 0,805 | 100308 (mức 12) | Không |
 | SQL Injection | Web-Query IF | 0,772 | 100305 (mức 12) | Không |
 | XSS lưu trữ | Web-Body IF | 0,713 | 100305 (mức 12) | Không |
 | XSS phản chiếu | Web-Query IF, kiểm tra miền | 1,000 | 100305 (mức 12) | Không |
 | Command injection | Web-Query IF | 0,670 | 100306 (mức 10) | Không |
 | Path traversal | Web-Query IF | 0,725 | 100305 (mức 12) | Không |
 
-Các lượt Tầng 1 có số đo được báo sau 7 đến 38 giây kể từ luồng đầu tiên của cửa sổ. Mỗi lượt web bị gắn cờ ngay từ một request. Chuỗi tấn công web liên tục đạt điều kiện của rule 100312 và bị chặn bốn lần. Các kịch bản kênh C2, exfiltration và khai thác lỗ hổng sẽ bổ sung khi chạy xong.
+Các lượt Behavior-IF có số đo được báo sau 7 đến 38 giây kể từ luồng đầu tiên của cửa sổ. Mỗi lượt web bị gắn cờ ngay từ một request. Chuỗi tấn công web liên tục đạt điều kiện của rule 100312 và bị chặn bốn lần. Lượt dò quét vùng quản trị và các lượt Web-Query IF trong bảng chạy với mô hình trước ngày 19/11/2026 (chiều ra cửa sổ 2 phút, Web-Query IF 11 đặc trưng) và sẽ được chạy lại với mô hình hiện tại. Ba lượt chiều vào và lượt Web-Body IF dùng rừng và ngưỡng không đổi. Các kịch bản giao tiếp chiều ra định kỳ, exfiltration và khai thác lỗ hổng sẽ bổ sung khi chạy xong.
 
 ## Cấu trúc kho
 
 | Thư mục | Nội dung |
 |---|---|
 | (thư mục gốc) | Hai notebook huấn luyện `1_KLTN_BehaviorIF.ipynb`, `2_KLTN_WebAppIF.ipynb`; `behavior_features.py`, `web_features.py` (đặc trưng, tách đơn vị, huấn luyện, chấm điểm và chọn ngưỡng của từng mô-đun; notebook nạp và gọi các hàm này); `isolationforest.py` (Isolation Forest tự cài bằng NumPy) |
-| `suricata/anomaly/` | Chương trình chạy trực tuyến trên Suricata_IDS: `anomaly.py` (điểm vào), `common.py`, `behavior.py` (hai tầng của Behavior-IF), `web.py` (Web-App IF), `whitelist.txt` (danh sách loại trừ của nhánh hành vi) |
+| `suricata/anomaly/` | Chương trình chạy trực tuyến trên Suricata_IDS: `anomaly.py` (điểm vào), `common.py`, `behavior.py` (Behavior-IF), `web.py` (Web-App IF), `whitelist.txt` (danh sách loại trừ của nhánh hành vi) |
 | `suricata/` | Rule thu thân POST, cấu hình eve-log và timeout luồng của Suricata_IDS |
 | `wazuh/` | Bộ rule Wazuh, script thông báo Telegram, script Active Response, dịch vụ systemd |
 | `docs/` | Hình dùng trong README; các hình kết quả do hai notebook ghi ra |

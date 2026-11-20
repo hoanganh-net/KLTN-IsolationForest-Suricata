@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""behavior_features.py: cửa sổ cặp máy, đặc trưng hành vi, huấn luyện, chọn ngưỡng và đếm cảnh báo của Behavior-IF.
-Module không giữ trạng thái: bảng độ hiếm, tham chiếu và ngưỡng do notebook truyền vào. Tầng 2 dùng cửa sổ 30 phút
-trượt 15 phút và các cột FEATS_IF; Tầng 1 (mục 8) dùng cửa sổ 2 phút, chấm theo thời điểm luồng tới engine và các cột
-FEATS_RT."""
+"""behavior_features.py: cửa sổ cặp máy, đặc trưng hành vi, huấn luyện, chọn ngưỡng và kiểm thử của Behavior-IF.
+Module không giữ trạng thái: bảng độ hiếm, tham chiếu và ngưỡng do notebook truyền vào. Mỗi chiều có một tham chiếu với độ dài
+cửa sổ riêng (CUA_SO), cửa sổ được chấm theo thời điểm luồng tới engine (mục 5) trên các cột FEATS_RT của chiều đó."""
 
 import math
 
@@ -56,21 +55,34 @@ def rar_of(d, rar_counts, rar_total):
 
 
 # 3. Cửa sổ cặp máy và đặc trưng hành vi
-WINDOW_MIN, WINDOW_HOP_MIN = 30, 15
 INCOMPLETE = {"syn_sent", "syn_recv"}
-FEATS = ["log_n_conn", "sqrt_mb_out", "log_bytes_in", "frac_out", "log_throughput",
+FEATS = ["log_n_conn", "sqrt_mb_out", "sqrt_mb_in", "frac_out", "log_throughput",
          "log_peak_cpm", "periodicity", "uniformity", "log_n_ports", "frac_incomplete", "svc_rarity"]
-FEATS_IF = ["sqrt_mb_out", "frac_out", "log_throughput", "log_peak_cpm",
-            "periodicity", "uniformity", "log_n_ports", "svc_rarity"]
-IDX_IF = [FEATS.index(f) for f in FEATS_IF]
 
-# Tầng 1: cửa sổ 2 phút trượt 1 phút, chấm lại mỗi RT_STEP_S giây và báo ngay khi vượt ngưỡng; cửa sổ chốt sau
-# cuối cửa sổ RT_DELAY_S giây (luồng chưa thiết lập hoặc đã đóng tới engine trong vòng 70 giây).
-RT_WIN_MIN, RT_HOP_MIN, RT_DELAY_S, RT_STEP_S, RT_QUIET_S = 2, 1, 75, 10, 900
-FEATS_RT = ["log_peak_cpm", "log_throughput", "log_n_ports", "frac_incomplete", "svc_rarity"]
-IDX_RT = [FEATS.index(f) for f in FEATS_RT]
-RT_CHOT = RT_WIN_MIN * 60 + RT_DELAY_S                       # lần chấm cuối, tính từ đầu cửa sổ (giây)
-RT_TAUS = np.array(list(range(RT_STEP_S, RT_CHOT, RT_STEP_S)) + [RT_CHOT])
+# Mỗi chiều một tham chiếu. Cửa sổ được chấm lại mỗi RT_STEP_S giây trên các luồng đã tới và báo ngay khi vượt ngưỡng; cửa sổ
+# chốt sau cuối cửa sổ RT_DELAY_S giây (luồng chưa thiết lập hoặc đã đóng tới engine trong vòng 70 giây).
+# Chiều vào: cửa sổ 2 phút, vì tấn công từ ngoài vào dồn dập và cần nhãn hành vi theo từng đợt để chọn phản ứng.
+# Chiều ra: cửa sổ 30 phút để thấy cả hành vi nhịp thưa (beacon) và luồng dài; cửa sổ đã vượt ngưỡng vẫn được chấm tiếp để
+# báo khi mức độ tăng hoặc hành vi đổi dạng.
+CUA_SO = {"out": (30, 15), "in": (2, 1)}                     # (độ dài cửa sổ, bước trượt), phút
+RT_DELAY_S, RT_STEP_S = 75, 10
+RT_QUIET_S = {"out": 1800, "in": 900}                        # sự cố đóng sau chừng này giây không còn cửa sổ vượt ngưỡng
+CHAM_TIEP = {"out": True, "in": False}
+# Cột rừng học theo từng chiều. Chiều ra dùng 9 đại lượng có tín hiệu đơn biến với ít nhất một hành vi; frac_out và
+# frac_incomplete không tách được hành vi chiều ra nào nên chỉ ghi kèm để diễn giải. Chiều vào giữ 5 cột của hành vi dồn dập.
+FEATS_RT = {"out": ["log_n_conn", "sqrt_mb_out", "sqrt_mb_in", "log_throughput", "log_peak_cpm", "periodicity", "uniformity",
+                    "log_n_ports", "svc_rarity"],
+            "in": ["log_peak_cpm", "log_throughput", "log_n_ports", "frac_incomplete", "svc_rarity"]}
+IDX_RT = {d: [FEATS.index(f) for f in cot] for d, cot in FEATS_RT.items()}
+# Cỡ mẫu con của mỗi cây: phải đủ lớn để mỗi cây thấy vài chục mẫu nằm ngoài phân vị vận hành (psi x SCORE_Q khoảng 30);
+# mẫu con nhỏ hơn thì mọi giá trị vượt cực trị của mẫu con nhận cùng một điểm, rừng không xếp hạng được phần đuôi.
+PSI = {"out": 65536, "in": 1024}
+
+
+def taus_cua(huong):
+    """Các lần chấm của một cửa sổ, tính bằng giây sau đầu cửa sổ; lần cuối là lúc cửa sổ chốt."""
+    chot = CUA_SO[huong][0] * 60 + RT_DELAY_S
+    return np.array(list(range(RT_STEP_S, chot, RT_STEP_S)) + [chot])
 
 
 def _cv(x):
@@ -98,7 +110,7 @@ def feature_vector(st, bts, btc, dur, dports, inc, rar):
     v = {
         "log_n_conn": math.log1p(n),
         "sqrt_mb_out": math.sqrt(byte_out / 1e6),
-        "log_bytes_in": math.log1p(byte_in),
+        "sqrt_mb_in": math.sqrt(byte_in / 1e6),
         "frac_out": byte_out / byte_all if byte_all > 0 else 0.0,
         "log_throughput": math.log1p(byte_all / dur_all) if dur_all > 0 else 0.0,
         "log_peak_cpm": math.log1p(_peak_per_min(st)),
@@ -111,43 +123,10 @@ def feature_vector(st, bts, btc, dur, dports, inc, rar):
     return [v[f] for f in FEATS]
 
 
-def windows(d, rar_counts, rar_total):
-    """Gom luồng theo (bên khởi tạo, bên nhận, cửa sổ 30 phút) trên hai lưới lệch nhau 15 phút."""
-    start, end = epoch(d["start"]), epoch(d["end"])
-    cols = {"st": start,
-            "bts": d["bytes_toserver"].to_numpy(float),
-            "btc": d["bytes_toclient"].to_numpy(float),
-            "dur": np.clip(end - start, 0, None),
-            "dport": d["dport"].to_numpy(),
-            "inc": d["tcp_state"].str.lower().isin(INCOMPLETE).to_numpy(float),
-            "rar": rar_of(d, rar_counts, rar_total)}
-    src, dst, dirn = d["src"].to_numpy(), d["dst"].to_numpy(), d["direction"].to_numpy()
-    run = d["run_id"].to_numpy() if "run_id" in d else np.full(len(d), "", object)
-
-    keys, feats = [], []
-    for off in range(0, WINDOW_MIN * 60, WINDOW_HOP_MIN * 60):
-        bucket = ((start - off) // (WINDOW_MIN * 60)).astype("int64")
-        gid = pd.factorize(pd.MultiIndex.from_arrays([src, dst, bucket]))[0]
-        order = np.argsort(gid, kind="stable")
-        g = gid[order]
-        lo = np.r_[0, np.flatnonzero(np.diff(g)) + 1]
-        hi = np.r_[lo[1:], len(g)]
-        for a, z in zip(lo, hi):
-            ix = order[a:z]
-            feats.append(feature_vector(*(cols[c][ix] for c in ("st", "bts", "btc", "dur", "dport", "inc", "rar"))))
-            runs = sorted({r for r in run[ix] if r})
-            keys.append((src[ix[0]], dst[ix[0]], dirn[ix[0]], int(bucket[ix[0]]), off, len(ix),
-                         float(start[ix].min()), "|".join(runs)))
-
-    K = pd.DataFrame(keys, columns=["src", "dst", "direction", "bucket", "off", "n_conn", "t0", "runs"])
-    F = pd.DataFrame(np.array(feats, float).reshape(len(K), -1), columns=FEATS)
-    return pd.concat([K, F], axis=1)
-
-
 # 4. Huấn luyện tham chiếu và chấm điểm
-def fit_ref(X, n_trees, max_samples, seed, idx=None):
-    """Học một tham chiếu trên X (đủ 11 cột); rừng chỉ nhận các cột idx (mặc định FEATS_IF) đã chuẩn hóa."""
-    idx = IDX_IF if idx is None else list(idx)
+def fit_ref(X, n_trees, max_samples, seed, idx):
+    """Học một tham chiếu trên X (đủ 11 cột); rừng chỉ nhận các cột idx đã chuẩn hóa."""
+    idx = list(idx)
     mu = X.mean(0)
     sd = X.std(0)
     sd = np.where(sd < 1e-9, 1.0, sd)
@@ -162,155 +141,13 @@ def fit_ref(X, n_trees, max_samples, seed, idx=None):
 
 
 def score(ref, X, which="own"):
-    Z = ((np.asarray(X, float) - ref["mu"]) / ref["sd"])[:, ref.get("idx", IDX_IF)]
+    Z = ((np.asarray(X, float) - ref["mu"]) / ref["sd"])[:, ref["idx"]]
     if which == "own":
         return ref["own"].anomaly_score(Z)
     return -ref["sk"].score_samples(Z)
 
 
-# 5. Chọn ngưỡng trên tập kiểm định
-def canh_bao(K, mask):
-    """Số cảnh báo: mỗi (bên khởi tạo, bên nhận, khung 30 phút) có cửa sổ bị gắn cờ tính một lần."""
-    k = K[np.asarray(mask, bool)]
-    khung = (k["t0"] // (WINDOW_MIN * 60)).astype("int64")
-    return len(set(zip(k["src"], k["dst"], khung)))
-
-
-def chon_nguong(ref, V, q_grid, fpr_max):
-    """Bảng lưới SCORE_Q, ngưỡng chọn được (None nếu không nấc nào đạt fpr_max) và số giờ kiểm định."""
-    s_val = score(ref, V[FEATS].values)
-    gio = (V["t0"].max() - V["t0"].min()) / 3600
-    rows = []
-    for q in q_grid:
-        thr = float(np.quantile(ref["s_tr"], 1 - q))
-        flag = s_val > thr
-        rows.append({"SCORE_Q": q, "Ngưỡng": round(thr, 4), "FPR kiểm định (%)": round(100 * flag.mean(), 3),
-                     "Cảnh báo nhầm/giờ": round(canh_bao(V, flag) / gio, 2)})
-    T = pd.DataFrame(rows)
-    dat = T[T["FPR kiểm định (%)"] <= 100 * fpr_max]
-    if not len(dat):
-        return T, None, gio
-    q = float(dat["SCORE_Q"].max())
-    return T, {"q": q, "thr": float(np.quantile(ref["s_tr"], 1 - q)),
-               "thr_sk": float(np.quantile(ref["s_sk"], 1 - q))}, gio
-
-
-# 6. Kiểm thử
-def cham(XF, refs, sel, rar_counts, rar_total, dirs=("out", "in")):
-    """Gom cửa sổ, chấm bằng tham chiếu của từng chiều và so với ngưỡng."""
-    WT = pd.concat([windows(XF[XF["direction"] == d], rar_counts, rar_total) for d in dirs], ignore_index=True)
-    WT["score"] = np.nan
-    WT["score_sk"] = np.nan
-    for d in dirs:
-        m = (WT["direction"] == d).values
-        WT.loc[m, "score"] = score(refs[d], WT.loc[m, FEATS].values)
-        WT.loc[m, "score_sk"] = score(refs[d], WT.loc[m, FEATS].values, "sk")
-    WT["thr"] = WT["direction"].map({d: sel[d]["thr"] for d in sel})
-    WT["pred"] = WT["score"] > WT["thr"]
-    WT["attack"] = WT["runs"] != ""
-    return WT
-
-
-def bang_ket_qua(WT, runs):
-    """Recall theo hành vi, tính theo cửa sổ và theo lượt."""
-    hit = {r for rs in WT.loc[WT["pred"], "runs"] for r in rs.split("|") if r}
-    R = runs.assign(phat_hien=runs["run_id"].isin(hit))
-    hanh_vi = dict(zip(runs["run_id"], runs["behavior"]))
-    tc = WT[WT["attack"]].assign(behavior=lambda x: x["runs"].str.split("|").str[0].map(hanh_vi))
-    B = tc.groupby("behavior").agg(cua_so=("pred", "size"), cua_so_bat=("pred", "sum"))
-    B["phu_cua_so_%"] = (100 * B["cua_so_bat"] / B["cua_so"]).round(2)
-    L = R.groupby("behavior").agg(luot=("phat_hien", "size"), luot_bat=("phat_hien", "sum"))
-    B = B.join(L)
-    B["phu_luot_%"] = (100 * B["luot_bat"] / B["luot"]).round(2)
-    B.loc["TỔNG"] = [B["cua_so"].sum(), B["cua_so_bat"].sum(), round(100 * B["cua_so_bat"].sum() / B["cua_so"].sum(), 2),
-                     B["luot"].sum(), B["luot_bat"].sum(), round(100 * B["luot_bat"].sum() / B["luot"].sum(), 2)]
-    return B.astype({"cua_so": int, "cua_so_bat": int, "luot": int, "luot_bat": int}), R
-
-
-def do_tre(WT, t_dau, win_min, delay_s):
-    """Độ trễ phát hiện từng lượt (giây): lúc chấm cửa sổ bị gắn cờ sớm nhất có luồng của lượt (cuối cửa sổ cộng delay_s)
-    trừ thời điểm bắt đầu luồng đầu tiên của lượt. t_dau: {run_id: giây}. Lượt không bị gắn cờ không có trong kết quả."""
-    f = WT[WT["pred"] & WT["attack"]]
-    t_cham = (f["bucket"] + 1) * win_min * 60 + f["off"] + delay_s
-    som = {}
-    for rs, t in zip(f["runs"], t_cham):
-        for r in rs.split("|"):
-            if r and (r not in som or t < som[r]):
-                som[r] = t
-    return pd.Series({r: som[r] - t_dau[r] for r in som if r in t_dau}, dtype=float)
-
-
-# 7. Mật độ cảnh báo theo máy, đếm như anomaly.py phát cảnh báo
-FLOW_DELAY_S = 360                                  # chấm cửa sổ khi đã đóng thêm 6 phút
-EPISODE_QUIET_S, EPISODE_REMIND_S = 120 * 60, 360 * 60
-
-
-def muc_uu_tien(Wx, ref, thr):
-    """Đặc trưng lệch nhất (|z| > 1) và mức ưu tiên High/Medium của từng cửa sổ."""
-    X = Wx[FEATS].values
-    z = np.clip((X - ref["med"]) / np.where(ref["scale"] < 1e-9, 1.0, ref["scale"]), -50, 50)
-    top = np.where(np.abs(z).max(1) > 1, np.array(FEATS)[np.argmax(np.abs(z), 1)], "")
-    sev = np.where((Wx["score"] - thr) / (1 - thr) >= 0.15, "high", "medium")
-    return Wx.assign(top=top, sev=sev)
-
-
-def canh_bao_may(Wx, may="src"):
-    """Cảnh báo phát cho các cửa sổ bị gắn cờ: khóa (máy, đích, bucket), gom theo sự cố của cặp máy;
-    cột t_cb là thời điểm phát (cửa sổ đóng cộng FLOW_DELAY_S)."""
-    f = Wx[Wx["pred"]].copy()
-    f["ws"] = f["bucket"] * WINDOW_MIN * 60 + f["off"]
-    f = f.sort_values(["ws", "off"], kind="stable").drop_duplicates(subset=[may, "dst", "bucket"])
-    su_co, giu = {}, []
-    for r in f.itertuples():
-        cap, t = (getattr(r, may), r.dst), r.ws
-        e = su_co.get(cap)
-        if e is None or t - e["last"] > EPISODE_QUIET_S:          # mở sự cố mới
-            su_co[cap] = {"last": t, "emit": t, "sev": r.sev, "tops": {r.top}}
-            giu.append(True)
-            continue
-        e["last"] = max(e["last"], t)
-        bao = ((r.sev == "high" and e["sev"] != "high") or (r.top and r.top not in e["tops"])
-               or t - e["emit"] >= EPISODE_REMIND_S)
-        e["tops"].add(r.top)
-        if r.sev == "high":
-            e["sev"] = "high"
-        if bao:
-            e["emit"] = t
-        giu.append(bao)
-    f = f[np.array(giu, bool)]
-    return f.assign(t_cb=f["ws"] + WINDOW_MIN * 60 + FLOW_DELAY_S)
-
-
-def nhieu_nhat(t, w):
-    """Số cảnh báo nhiều nhất trong một khung trượt w giây."""
-    t = np.sort(np.asarray(t, float))
-    if len(t) == 0:
-        return 0
-    return int((np.searchsorted(t, t + w, side="right") - np.arange(len(t))).max())
-
-
-def so_dot(t, n, w):
-    """Số đợt đạt n cảnh báo trong khung trượt w giây; sau mỗi đợt bỏ qua w giây."""
-    t = np.sort(np.asarray(t, float))
-    dot, i, het = 0, 0, -np.inf
-    for j in range(len(t)):
-        while t[j] - t[i] > w:
-            i += 1
-        if j - i + 1 >= n and t[j] > het:
-            dot += 1
-            het = t[j] + w
-    return dot
-
-
-def lan_dau(t, n, w):
-    """Thời điểm đầu tiên đạt n cảnh báo trong khung trượt w giây; None nếu không đạt."""
-    t = np.sort(np.asarray(t, float))
-    j = np.searchsorted(t, t - w, side="left")
-    dat = np.flatnonzero(np.arange(len(t)) - j + 1 >= n)
-    return float(t[dat[0]]) if len(dat) else None
-
-
-# 8. Tầng 1: cảnh báo nhanh
+# 5. Chấm theo thời điểm luồng tới, chọn ngưỡng và kiểm thử
 def _nhom_mean_std(v, g, G):
     """Trung bình và độ lệch chuẩn (ddof=0) của v theo nhóm g (hai lượt để tránh sai số triệt tiêu)."""
     m = np.bincount(g, minlength=G).astype(float)
@@ -321,15 +158,16 @@ def _nhom_mean_std(v, g, G):
     return m, mean, std
 
 
-def _mang_luong(d, rar_counts, rar_total):
-    """Các mảng theo luồng dùng để dựng cửa sổ Tầng 1."""
+def _mang_luong(d, rar_counts, rar_total, tach_luot=False):
+    """Các mảng theo luồng dùng để dựng cửa sổ. tach_luot: mỗi lượt tấn công được gom cửa sổ riêng, không trộn luồng của
+    lượt khác tới cùng máy đích, để độ phủ và độ trễ không phụ thuộc mật độ lượt của lab."""
     start, end = epoch(d["start"]), epoch(d["end"])
     M = {"start": start, "bts": d["bytes_toserver"].to_numpy(float), "btc": d["bytes_toclient"].to_numpy(float),
          "dur": np.clip(end - start, 0, None), "dport": d["dport"].to_numpy().astype("int64"),
          "inc": d["tcp_state"].str.lower().isin(INCOMPLETE).to_numpy(float), "rar": rar_of(d, rar_counts, rar_total),
          "src": d["src"].to_numpy(), "dst": d["dst"].to_numpy(), "dirn": d["direction"].to_numpy(),
          "run": d["run_id"].to_numpy() if "run_id" in d else np.full(len(d), "", object)}
-    M["pair"] = pd.factorize(pd.MultiIndex.from_arrays([M["src"], M["dst"]]))[0]
+    M["pair"] = pd.factorize(pd.MultiIndex.from_arrays([M["src"], M["dst"]] + ([M["run"]] if tach_luot else [])))[0]
     return M
 
 
@@ -361,7 +199,7 @@ def _cua_so_luoi(M, span, off, bucket, sel):
     F = pd.DataFrame({
         "log_n_conn": np.log1p(cnt),
         "sqrt_mb_out": np.sqrt(bo / 1e6),
-        "log_bytes_in": np.log1p(bi),
+        "sqrt_mb_in": np.sqrt(bi / 1e6),
         "frac_out": np.divide(bo, ba, out=np.zeros(G), where=ba > 0),
         "log_throughput": np.where(ds > 0, np.log1p(np.divide(ba, ds, out=np.zeros(G), where=ds > 0)), 0.0),
         "log_peak_cpm": np.log1p(peak),
@@ -379,13 +217,14 @@ def _cua_so_luoi(M, span, off, bucket, sel):
         for gg, s in rr.groupby("g")["r"]:
             runs[gg] = "|".join(s)
     K = pd.DataFrame({"src": M["src"][f0], "dst": M["dst"][f0], "direction": M["dirn"][f0], "bucket": bucket[f0],
-                      "off": off, "n_conn": cnt, "t0": st[lo], "runs": runs})
+                      "off": off, "n_conn": cnt, "t0": st[lo], "runs": runs, "cap": M["pair"][f0], "f0": f0})
     return pd.concat([K, F], axis=1)
 
 
-def windows_nhanh(d, rar_counts, rar_total, win_min=RT_WIN_MIN, hop_min=RT_HOP_MIN, arrival=None, delay_s=0):
-    """Như windows() nhưng tính đặc trưng bằng phép toán mảng theo nhóm; kết quả trùng feature_vector tới sai số làm
-    tròn. arrival, delay_s: chỉ giữ luồng tới không muộn hơn cuối cửa sổ cộng delay_s."""
+def windows_nhanh(d, rar_counts, rar_total, win_min, hop_min, arrival=None, delay_s=0):
+    """Gom luồng theo (bên khởi tạo, bên nhận, cửa sổ win_min phút) trên các lưới lệch nhau hop_min phút; đặc trưng tính
+    bằng phép toán mảng theo nhóm, trùng feature_vector tới sai số làm tròn. arrival, delay_s: chỉ giữ luồng tới không
+    muộn hơn cuối cửa sổ cộng delay_s."""
     M = _mang_luong(d, rar_counts, rar_total)
     span = win_min * 60
     arr = None if arrival is None else np.asarray(arrival, float)
@@ -395,7 +234,7 @@ def windows_nhanh(d, rar_counts, rar_total, win_min=RT_WIN_MIN, hop_min=RT_HOP_M
         sel = np.arange(len(bucket)) if arr is None else np.flatnonzero(arr <= (bucket + 1) * span + off + delay_s)
         if len(sel):
             parts.append(_cua_so_luoi(M, span, off, bucket, sel))
-    return pd.concat(parts, ignore_index=True)
+    return pd.concat(parts, ignore_index=True).drop(columns=["cap", "f0"])
 
 
 def top_dac_trung(Xw, med, scale, clip=50.0):
@@ -414,17 +253,16 @@ def muc_do(score_, thr):
     return np.where((np.asarray(score_, float) - thr) / (1.0 - thr) >= 0.15, "high", "medium")
 
 
-def chinh_sach(src, dst, ws, batch, sev, top, quiet=RT_QUIET_S):
-    """Trạng thái báo của từng cửa sổ nổ theo _su_co_rt() của anomaly.py, theo thứ tự engine gặp (lần đọc rồi đầu
-    cửa sổ): 'new', 'escalated', 'new_behavior', hoặc '' khi chỉ cộng dồn vào sự cố."""
-    src, dst, ws, batch, sev, top = (np.asarray(a) for a in (src, dst, ws, batch, sev, top))
+def chinh_sach(cap, ws, batch, sev, top, quiet):
+    """Trạng thái báo của từng lần chấm vượt ngưỡng theo _su_co_rt() của anomaly.py, theo thứ tự engine gặp (lần đọc rồi
+    đầu cửa sổ): 'new', 'escalated', 'new_behavior', hoặc '' khi chỉ cộng dồn vào sự cố đang mở của cặp máy."""
+    cap, ws, batch, sev, top = (np.asarray(a) for a in (cap, ws, batch, sev, top))
     st = np.full(len(ws), "", object)
     ep = {}
     for i in np.lexsort((ws, batch)):
-        p = (src[i], dst[i])
-        e = ep.get(p)
+        e = ep.get(cap[i])
         if e is None or ws[i] - e["last"] > quiet:
-            ep[p] = {"last": ws[i], "sev": sev[i], "tops": {top[i]}}
+            ep[cap[i]] = {"last": ws[i], "sev": sev[i], "tops": {top[i]}}
             st[i] = "new"
             continue
         e["last"] = max(e["last"], ws[i])
@@ -438,110 +276,146 @@ def chinh_sach(src, dst, ws, batch, sev, top, quiet=RT_QUIET_S):
     return st
 
 
-KEY_RT = ["src", "dst", "bucket", "off"]
-
-
-def quy_dao(D, ref, rar_counts, rar_total, taus=RT_TAUS):
-    """Điểm scikit-learn và đặc trưng lệch nhất của mỗi cửa sổ Tầng 1 ở từng lần chấm tau (giây sau đầu cửa sổ), chỉ
-    dùng luồng có _toi không muộn hơn đầu cửa sổ + tau. Mỗi lần chấm chỉ dựng và chấm lại các cửa sổ vừa có thêm luồng,
-    cửa sổ khác giữ kết quả của lần chấm trước. Trả (khung cửa sổ, S, K); ô chưa có luồng: S là NaN, K là -1."""
-    M = _mang_luong(D, rar_counts, rar_total)
+def quy_dao(D, rar_counts, rar_total, huong, tach_luot=False):
+    """Quỹ đạo chấm sớm của các luồng D theo cửa sổ của chiều huong: với mỗi lần chấm (giây sau đầu cửa sổ), đặc trưng của
+    những cửa sổ vừa có thêm luồng, chỉ tính trên luồng có _toi không muộn hơn đầu cửa sổ cộng lần chấm đó. Trả từ điển:
+    base (cửa sổ ở trạng thái chốt), taus, các sự kiện sắp theo (cửa sổ, lần chấm) gồm r (hàng trong base), j (chỉ số
+    lần chấm), X (11 đặc trưng); lo (sự kiện đầu của mỗi cửa sổ), ws (đầu cửa sổ), cap (mã cặp máy của sự kiện), gio (số
+    giờ dữ liệu), dau (lần chấm đầu tiên mỗi lượt có luồng trong từng cửa sổ)."""
+    span, hop = CUA_SO[huong][0] * 60, CUA_SO[huong][1] * 60
+    taus = taus_cua(huong)
+    M = _mang_luong(D, rar_counts, rar_total, tach_luot)
     arr = D["_toi"].to_numpy(float)
-    span, taus = RT_WIN_MIN * 60, np.asarray(taus)
-    luoi = []
-    for off in range(0, span, RT_HOP_MIN * 60):
+    luoi, parts = [], []
+    for off in range(0, span, hop):
         bucket = ((M["start"] - off) // span).astype("int64")
-        j_toi = np.searchsorted(taus, arr - (bucket * span + off), side="left")     # lần chấm đầu tiên thấy luồng
+        j_toi = np.searchsorted(taus, arr - (bucket * span + off), side="left")       # lần chấm đầu tiên thấy luồng
         gid = pd.factorize(pd.MultiIndex.from_arrays([M["pair"], bucket]))[0]
         luoi.append((off, bucket, j_toi, gid))
-    last = pd.concat([_cua_so_luoi(M, span, off, b, np.flatnonzero(j < len(taus))) for off, b, j, _ in luoi],
-                     ignore_index=True)
-    base = last[KEY_RT + ["direction", "t0", "runs"]].reset_index(drop=True)
+        sel = np.flatnonzero(j_toi < len(taus))
+        if len(sel):
+            parts.append(_cua_so_luoi(M, span, off, bucket, sel).assign(_g=len(luoi) - 1))
+    base = pd.concat(parts, ignore_index=True)
     base["runs"] = base["runs"].fillna("")
-    so = base[KEY_RT].assign(_r=np.arange(len(base)))
-    S = np.full((len(base), len(taus)), np.nan)
-    K = np.full((len(base), len(taus)), -1, "int8")
+    hang = []                                                 # hàng trong base của từng cửa sổ, theo lưới
+    for g, (off, bucket, j_toi, gid) in enumerate(luoi):
+        m = np.full(int(gid.max()) + 1, -1, "int64")
+        b = base[base["_g"] == g]
+        m[gid[b["f0"].to_numpy()]] = b.index.to_numpy()
+        hang.append(m)
+    R, J, XX = [], [], []
     for j in range(len(taus)):
-        if j:
-            S[:, j], K[:, j] = S[:, j - 1], K[:, j - 1]
-        parts = []
-        for off, bucket, j_toi, gid in luoi:
-            doi = np.unique(gid[j_toi == j])
-            if len(doi):
-                parts.append(_cua_so_luoi(M, span, off, bucket, np.flatnonzero(np.isin(gid, doi) & (j_toi <= j))))
-        if not parts:
-            continue
-        w = pd.concat(parts, ignore_index=True)
-        r = w[KEY_RT].merge(so, on=KEY_RT, how="left")["_r"]
-        assert r.notna().all(), "cửa sổ ở lần chấm sớm phải có ở lần chấm cuối"
-        r = r.to_numpy(int)
-        v = w[FEATS].values
-        S[r, j] = score(ref, v, "sk")
-        K[r, j] = top_dac_trung(v, ref["med"], ref["scale"])
-    return base, S, K
+        for g, (off, bucket, j_toi, gid) in enumerate(luoi):
+            doi = np.unique(gid[j_toi == j])                  # cửa sổ có thêm luồng ở lần chấm này
+            if not len(doi):
+                continue
+            w = _cua_so_luoi(M, span, off, bucket, np.flatnonzero(np.isin(gid, doi) & (j_toi <= j)))
+            R.append(hang[g][gid[w["f0"].to_numpy()]])
+            J.append(np.full(len(w), j, "int16"))
+            XX.append(w[FEATS].to_numpy(float))
+    r, jj, X = np.concatenate(R), np.concatenate(J), np.concatenate(XX)
+    assert (r >= 0).all(), "cửa sổ ở lần chấm sớm phải có ở lần chấm cuối"
+    o = np.lexsort((jj, r))
+    r, jj, X = r[o], jj[o], X[o]
+    dau = []
+    co = np.flatnonzero(M["run"] != "")
+    for g, (off, bucket, j_toi, gid) in enumerate(luoi):
+        m = co[j_toi[co] < len(taus)]
+        if len(m):
+            dau.append(pd.DataFrame({"r": hang[g][gid[m]], "run": M["run"][m], "j_dau": j_toi[m]})
+                       .groupby(["r", "run"], as_index=False)["j_dau"].min())
+    dau = pd.concat(dau, ignore_index=True) if dau else pd.DataFrame({"r": [], "run": [], "j_dau": []})
+    ws = (base["bucket"].to_numpy() * span + base["off"].to_numpy()).astype(float)
+    return {"base": base.drop(columns=["_g", "f0"]), "taus": taus, "r": r, "j": jj, "X": X,
+            "lo": np.r_[0, np.flatnonzero(np.diff(r)) + 1], "ws": ws, "cap": base["cap"].to_numpy(),
+            "gio": (base["t0"].max() - base["t0"].min()) / 3600, "dau": dau, "huong": huong}
 
 
-def no_som(S, K, thr, taus=RT_TAUS):
-    """Lần chấm đầu tiên điểm vượt ngưỡng của mỗi cửa sổ: (hàng, tau, điểm, mã đặc trưng lệch nhất)."""
-    v = np.nan_to_num(S, nan=-1.0) > thr
-    rows = np.flatnonzero(v.any(1))
-    j = np.argmax(v[rows], axis=1)
-    return rows, np.asarray(taus)[j], S[rows, j], K[rows, j]
+def cham_quy_dao(Q, ref):
+    """Điểm scikit-learn (s) và đặc trưng lệch nhất (k) của từng lần chấm trong quỹ đạo Q theo tham chiếu ref."""
+    Q["s"] = score(ref, Q["X"], "sk")
+    Q["k"] = top_dac_trung(Q["X"], ref["med"], ref["scale"])
+    return Q
 
 
-def bao_rt(base, rows, tau, sc, top, thr, quiet_s=RT_QUIET_S):
-    """Trạng thái báo của các cửa sổ nổ; cửa sổ nổ ở lần chấm cuối được engine xử lý ở lần đọc kế tiếp. Trả
-    (trạng thái, đầu cửa sổ)."""
-    span = RT_WIN_MIN * 60
-    ws = (base["bucket"].to_numpy()[rows] * span + base["off"].to_numpy()[rows]).astype(float)
-    batch = ws + np.where(tau == RT_CHOT, (RT_CHOT // RT_STEP_S + 1) * RT_STEP_S, tau)
-    st = chinh_sach(base["src"].to_numpy()[rows], base["dst"].to_numpy()[rows], ws, batch, muc_do(sc, thr), top, quiet_s)
-    return st, ws
+def vuot_nguong(Q, thr, cham_tiep):
+    """Chỉ số các lần chấm vượt ngưỡng được đưa vào chính sách báo: mọi lần vượt khi cửa sổ đã vượt ngưỡng vẫn được chấm
+    tiếp (cham_tiep), còn không thì chỉ lần đầu tiên của mỗi cửa sổ."""
+    v = Q["s"] > thr
+    if cham_tiep:
+        return np.flatnonzero(v)
+    dau = np.minimum.reduceat(np.where(v, np.arange(len(v)), len(v)), Q["lo"])
+    return dau[dau < len(v)]
 
 
-def chon_nguong_rt(ref, base, S, K, q_grid, fa_max, quiet_s=RT_QUIET_S):
-    """SCORE_Q lớn nhất có không quá fa_max cảnh báo nhầm mỗi giờ trên tập kiểm định, đếm đủ ba loại cảnh báo
-    engine phát. Trả (bảng theo SCORE_Q, lựa chọn hoặc None, số giờ kiểm định)."""
-    gio = (base["t0"].max() - base["t0"].min()) / 3600
+def bao_rt(Q, ix, thr):
+    """Trạng thái báo của các lần chấm ix. Cửa sổ vượt ngưỡng ở lần chấm cuối được engine xử lý ở lần đọc kế tiếp."""
+    r, tau = Q["r"][ix], Q["taus"][Q["j"][ix]].astype(float)
+    chot = float(Q["taus"][-1])
+    batch = Q["ws"][r] + np.where(tau == chot, (chot // RT_STEP_S + 1) * RT_STEP_S, tau)
+    return chinh_sach(Q["cap"][r], Q["ws"][r], batch, muc_do(Q["s"][ix], thr), Q["k"][ix], RT_QUIET_S[Q["huong"]])
+
+
+def chon_nguong_rt(ref, Q, q_grid, fa_max):
+    """SCORE_Q lớn nhất có không quá fa_max cảnh báo nhầm mỗi giờ trên quỹ đạo kiểm định Q (đã chấm), đếm đủ ba loại cảnh
+    báo engine phát. Trả (bảng theo SCORE_Q, lựa chọn hoặc None, số giờ kiểm định)."""
+    cham_tiep = CHAM_TIEP[Q["huong"]]
     rows, sel = [], None
     for q in q_grid:
         t = float(np.quantile(ref["s_sk"], 1 - q))
-        r, tau, sc, top = no_som(S, K, t)
-        st, _ = bao_rt(base, r, tau, sc, top, t, quiet_s)
+        ix = vuot_nguong(Q, t, cham_tiep)
+        st = bao_rt(Q, ix, t)
         n = pd.Series(st, dtype=object).value_counts()
         moi, tat_ca = int(n.get("new", 0)), int((st != "").sum())
-        rows.append({"SCORE_Q": q, "Ngưỡng": round(t, 6), "Cửa sổ nổ": len(r), "Sự cố/giờ": round(moi / gio, 2),
-                     "Cảnh báo nhầm/giờ": round(tat_ca / gio, 2), "Tăng mức độ": int(n.get("escalated", 0)),
-                     "Đổi dạng": int(n.get("new_behavior", 0))})
-        if tat_ca / gio <= fa_max:
-            sel = {"q": q, "thr_sk": t, "fa_h": tat_ca / gio}
-    return pd.DataFrame(rows), sel, gio
+        rows.append({"SCORE_Q": q, "Ngưỡng": round(t, 6), "Cửa sổ vượt ngưỡng": int(len(np.unique(Q["r"][ix]))),
+                     "Sự cố/giờ": round(moi / Q["gio"], 2), "Cảnh báo nhầm/giờ": round(tat_ca / Q["gio"], 2),
+                     "Tăng mức độ": int(n.get("escalated", 0)), "Đổi dạng": int(n.get("new_behavior", 0))})
+        if tat_ca / Q["gio"] <= fa_max:
+            sel = {"q": q, "thr_sk": t, "fa_h": tat_ca / Q["gio"]}
+    return pd.DataFrame(rows), sel, Q["gio"]
 
 
-def kiem_thu_rt(Q, thr, t_dau, quiet_s=RT_QUIET_S):
-    """Chạy một lần trên tập kiểm thử (Q = {chiều: (khung, S, K)}, thr = {chiều: ngưỡng}). Trả chỉ số cảnh báo
-    nhầm theo chiều, độ trễ của từng lượt (lần nổ sớm nhất trừ t_dau, theo đồng hồ live) và số cảnh báo engine phát mỗi lượt."""
-    chi_so, nho = {}, []
-    for d, (base, S, K) in Q.items():
-        r, tau, sc, top = no_som(S, K, thr[d])
-        st, ws = bao_rt(base, r, tau, sc, top, thr[d], quiet_s)
-        tc = base["runs"].to_numpy() != ""
-        rn = ~tc[r]
-        st_n, _ = bao_rt(base, r[rn], tau[rn], sc[rn], top[rn], thr[d], quiet_s)
-        hl = base[~tc]
-        g = (hl["t0"].max() - hl["t0"].min()) / 3600
-        chi_so[d] = {"FPR (%)": round(100 * rn.sum() / len(hl), 3), "cảnh báo nhầm/giờ": round((st_n != "").sum() / g, 2),
-                     "cửa sổ bình thường": len(hl), "giờ": round(g, 1)}
-        ra = np.flatnonzero(tc[r])
-        nho.append(pd.DataFrame({"runs": base["runs"].to_numpy()[r[ra]], "t_no": ws[ra] + tau[ra], "state": st[ra]}))
-    A = pd.concat(nho, ignore_index=True)
-    A = A.assign(run=A["runs"].str.split("|")).explode("run")
-    A = A[A["run"] != ""]
-    t_dau = pd.Series(t_dau, dtype=float)
-    lat = A.groupby("run")["t_no"].min()
-    lat = (lat - t_dau.reindex(lat.index)).dropna()
-    n_bao = A[A["state"] != ""].groupby("run").size()
-    return chi_so, lat, n_bao
+def chi_so_nen(Q, thr):
+    """Báo nhầm trên các cửa sổ không chứa luồng tấn công của quỹ đạo Q: tỷ lệ cửa sổ có lần chấm vượt ngưỡng và số cảnh
+    báo engine phát mỗi giờ."""
+    nen = (Q["base"]["runs"].to_numpy() == "")
+    ix = vuot_nguong(Q, thr, CHAM_TIEP[Q["huong"]])
+    ix = ix[nen[Q["r"][ix]]]
+    st = bao_rt(Q, ix, thr)
+    hl = Q["base"][nen]
+    g = (hl["t0"].max() - hl["t0"].min()) / 3600
+    n_vuot, n_bao = len(np.unique(Q["r"][ix])), int((st != "").sum())
+    gio_nen = len(np.unique(hl["t0"].to_numpy() // 3600))            # số giờ đồng hồ có ít nhất một cửa sổ bình thường
+    return {"FPR (%)": round(100 * n_vuot / len(hl), 3), "cảnh báo nhầm/giờ": round(n_bao / g, 2),
+            "cửa sổ bình thường": len(hl), "giờ": round(g, 1), "cửa sổ vượt ngưỡng": n_vuot, "cảnh báo nhầm": n_bao,
+            "giờ có lưu lượng": gio_nen}
+
+
+def phat_hien(Q, thr, t_dau):
+    """Độ trễ của từng lượt (theo đồng hồ live): lần chấm vượt ngưỡng sớm nhất của một cửa sổ khi lượt đã có luồng trong
+    cửa sổ đó, trừ lúc bắt đầu của lượt; và số cảnh báo engine phát cho các cửa sổ của từng lượt."""
+    v = np.flatnonzero(Q["s"] > thr)
+    d = Q["dau"].merge(pd.DataFrame({"r": Q["r"][v], "j": Q["j"][v]}), on="r")
+    d = d[d["j"] >= d["j_dau"]]
+    d["t"] = Q["ws"][d["r"].to_numpy()] + Q["taus"][d["j"].to_numpy()]
+    lat = d.groupby("run")["t"].min()
+    lat = (lat - pd.Series(t_dau, dtype=float).reindex(lat.index)).dropna()
+    ix = vuot_nguong(Q, thr, CHAM_TIEP[Q["huong"]])
+    st = bao_rt(Q, ix, thr)
+    b = pd.DataFrame({"r": Q["r"][ix], "j": Q["j"][ix]})[st != ""].merge(Q["dau"], on="r")
+    n_bao = b[b["j"] >= b["j_dau"]].groupby("run").size()
+    return lat, n_bao
+
+
+def tre_khi_dong(Q, thr, t_dau):
+    """Độ trễ của từng lượt (theo đồng hồ live) nếu mỗi cửa sổ chỉ được chấm một lần lúc chốt: cửa sổ chốt sớm nhất có luồng
+    của lượt và có điểm ở trạng thái chốt vượt ngưỡng, trừ lúc bắt đầu của lượt. Dùng để so với cách chấm khi cửa sổ còn mở."""
+    cuoi = np.r_[Q["lo"][1:], len(Q["s"])] - 1                      # lần chấm cuối của mỗi cửa sổ
+    r_vuot = Q["r"][cuoi][Q["s"][cuoi] > thr]
+    d = Q["dau"][Q["dau"]["r"].isin(r_vuot)]
+    t = pd.Series(Q["ws"][d["r"].to_numpy()] + float(Q["taus"][-1]), index=d["run"].to_numpy())
+    lat = t.groupby(level=0).min()
+    return (lat - pd.Series(t_dau, dtype=float).reindex(lat.index)).dropna()
 
 
 def gio_that(*A):
@@ -570,7 +444,7 @@ HV_THU_TU = ["scan_mgmt", "auth_mgmt", "scan_in", "flood_in", "web_in", "exfil",
 
 def bang_do_tre(cot, runs, n_bao):
     """Bảng theo hành vi: mỗi cột của cot (tên -> độ trễ theo lượt) ghi số lượt bắt được, trung vị và tối đa; cột cuối là
-    số cảnh báo Tầng 1 mỗi lượt."""
+    số cảnh báo engine phát mỗi lượt."""
     hv = HV_THU_TU + [b for b in runs["behavior"].unique() if b not in HV_THU_TU]
     hang = []
     for b in hv:
@@ -580,6 +454,6 @@ def bang_do_tre(cot, runs, n_bao):
             x = s.reindex(rr).dropna()
             h[k] = f"{len(x)}/{len(rr)}, {x.median():.0f} s ({x.max():.0f})" if len(x) else f"0/{len(rr)}"
         nb = n_bao.reindex(rr).dropna()
-        h["Cảnh báo Tầng 1 mỗi lượt"] = f"{nb.median():.0f} ({nb.min():.0f}-{nb.max():.0f})" if len(nb) else "-"
+        h["Cảnh báo mỗi lượt"] = f"{nb.median():.0f} ({nb.min():.0f}-{nb.max():.0f})" if len(nb) else "-"
         hang.append(h)
     return pd.DataFrame(hang)

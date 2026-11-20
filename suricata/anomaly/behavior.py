@@ -1,10 +1,10 @@
-"""behavior.py — Behavior-IF trên bản ghi flow (hai tầng cửa sổ). Tách từ anomaly.py, logic nguyên vẹn."""
+"""behavior.py: Behavior-IF trên bản ghi flow, mỗi chiều một tham chiếu, cửa sổ chấm lại cả khi còn mở (module anomaly_if_rt)."""
 import sys, os, json, math, time, re, gzip, ipaddress, collections, types, threading, base64, html
 from datetime import datetime
 from urllib.parse import unquote_plus, urlsplit, parse_qsl
 import numpy as np
-from common import (WHITELIST_PATH, _chon_cot, _emit, _load, _load_whitelist, _open, _score,
-                    _severity, _tail_lines, _tail_start, _thr_q, explain, zscore)
+from common import (WHITELIST_PATH, _chon_cot, _emit, _load_whitelist, _open, _score,
+                    _severity, _tail_lines, _tail_start, _tail_warm, _thr_q, explain, zscore)
 
 
 
@@ -14,9 +14,9 @@ def _build_behavior(model_path="net_if_model.joblib"):
     MGMT_NETS   = [ipaddress.ip_network("192.168.20.0/24")]
     EXCLUDE_PORTS = {0, 53, 5353, 5355, 137, 138, 123}
     EXCLUDE_SRC = set()
-    WINDOW_MIN, WINDOW_HOP_MIN, MIN_CONN = 30, 15, 1
+    MIN_CONN = 1
     INCOMPLETE_STATES = {"syn_sent", "syn_recv"}
-    FEATS = ["log_n_conn", "sqrt_mb_out", "log_bytes_in", "frac_out", "log_throughput",
+    FEATS = ["log_n_conn", "sqrt_mb_out", "sqrt_mb_in", "frac_out", "log_throughput",
              "log_peak_cpm", "periodicity", "uniformity", "log_n_ports", "frac_incomplete", "svc_rarity"]
     # Trường phụ chỉ phục vụ thẻ cảnh báo: direction, zone_other, frac_out, dport_top, n_ports, dports.
     I_FRAC_OUT = FEATS.index("frac_out")
@@ -62,7 +62,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
         return "ext"
 
     def keep_pair(s, d):
-        # Hai chiều chấm theo bên khởi tạo: chiều ra dùng tham chiếu chính, chiều vào dùng khóa "inbound" (nếu có).
+        # Hai chiều chấm theo bên khởi tạo: chiều ra dùng tham chiếu "out", chiều vào dùng tham chiếu "inbound" (nếu có).
         zs, zd = zone(s), zone(d)
         return (zs == "victim" and zd in ("ext", "mgmt")) or (zs == "ext" and zd == "victim")
 
@@ -70,14 +70,6 @@ def _build_behavior(model_path="net_if_model.joblib"):
     BUF_MAX_ROWS     = int(os.environ.get("ANOMALY_BUF_MAX_ROWS", "400000"))      # tổng số luồng giữ trong bộ đệm
     BUF_MAX_PER_PAIR = int(os.environ.get("ANOMALY_BUF_MAX_PER_PAIR", "50000"))   # số luồng tối đa của một cặp
     BUF_MAX_PAIRS    = int(os.environ.get("ANOMALY_BUF_MAX_PAIRS", "20000"))      # số cặp tối đa theo dõi cùng lúc
-    # Bản ghi flow đến sau khi luồng kết thúc (lab: 99,4% trong 6 phút, chậm nhất khoảng 10 phút).
-    FLOW_DELAY       = int(os.environ.get("ANOMALY_FLOW_DELAY_S", "360"))
-    # Gom cảnh báo --live theo sự cố của cặp (nguồn, đích): chỉ báo khi mở sự cố, khi tăng lên high, khi đặc trưng lệch
-    # nhất đổi hoặc đã quá EP_REMIND; sự cố đóng sau EP_QUIET yên lặng. ANOMALY_EPISODE=0 tắt việc gom.
-    EP_ON     = os.environ.get("ANOMALY_EPISODE", "1") != "0"
-    EP_QUIET  = int(float(os.environ.get("ANOMALY_EPISODE_QUIET_MIN", "120")) * 60)
-    EP_REMIND = int(float(os.environ.get("ANOMALY_EPISODE_REMIND_MIN", "360")) * 60)   # 0: không nhắc lại
-
     def cap_buffer(buf):
         """Giữ luồng mới nhất khi bộ đệm vượt giới hạn theo tổng, theo cặp và theo số cặp."""
         note = []
@@ -131,7 +123,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
         uniformity  = math.log1p(n - 1) * max(0.0, 1.0 - _cv(tot)) if n >= 3 else 0.0
         return [math.log1p(n),
                 math.sqrt(sout / 1e6),
-                math.log1p(sin_),
+                math.sqrt(sin_ / 1e6),
                 sout / stot if stot > 0 else 0.0,
                 math.log1p(stot / sdur) if sdur > 0 else 0.0,
                 math.log1p(_peak_per_min(st)),
@@ -173,9 +165,6 @@ def _build_behavior(model_path="net_if_model.joblib"):
         return (s, d), (st, fl.get("bytes_toserver", 0) or 0, fl.get("bytes_toclient", 0) or 0,
                         max(0.0, en - st), dp, _is_incomplete(o), rarity_of(key, rar_counts, rar_total))
 
-    def window_offsets():
-        return [o * 60 for o in range(0, WINDOW_MIN, WINDOW_HOP_MIN)]
-
     def read_pairs(path, rc, rt, last_min=None, rar_in=None):
         P = collections.defaultdict(list); tmax = None
         with _open(path) as f:
@@ -192,183 +181,20 @@ def _build_behavior(model_path="net_if_model.joblib"):
             P = {k: [x for x in v if x[0] + x[3] >= lo] for k, v in P.items()}
         return P
 
-    def _windows_from_P(P):
-        W = WINDOW_MIN * 60; keys, X = [], []
-        for (s, d), rows in P.items():
-            for off in window_offsets():
-                buckets = collections.defaultdict(list)
-                for r in rows: buckets[int((r[0] - off) // W)].append(r)
-                for b, rws in buckets.items():
-                    if len(rws) < MIN_CONN: continue
-                    c = list(zip(*rws))
-                    X.append(feature_vector(c[0], c[1], c[2], c[3], c[4], c[5], c[6]))
-                    keys.append((s, d, ext_ip(s, d), len(rws), off, b, int(collections.Counter(c[4]).most_common(1)[0][0]),
-                                 sorted({int(p) for p in c[4]})[:DPORTS_MAX]))
-        return keys, (np.array(X) if X else np.empty((0, len(FEATS))))
-
-    def build_matrix(path, rc, rt, last_min=None, rar_in=None):
-        return _windows_from_P(read_pairs(path, rc, rt, last_min, rar_in))
-
-    def _inbound(m):
-        mi = m.get("inbound")
-        if mi is None: return None
-        return _chon_cot(mi, FEATS, "tham chiếu chiều vào trong joblib")
-
-    def score_split(keys, X, m, thr, mi, thr_i):
-        """Chấm từng cửa sổ bằng tham chiếu đúng với bên khởi tạo; trả [(i, điểm, mô hình, ngưỡng)]."""
-        ra = [i for i, k in enumerate(keys) if zone(k[0]) == "victim"]
-        vao = [i for i, k in enumerate(keys) if zone(k[0]) == "ext"]
-        out = []
-        if ra:
-            for i, sc in zip(ra, _score(m, X[ra])): out.append((i, sc, m, thr))
-        if vao and mi is not None:
-            for i, sc in zip(vao, _score(mi, X[vao])): out.append((i, sc, mi, thr_i))
-        return out
-
     def _iso(ts):
         return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
 
-    def _emit_beh(key, x, sc, m, thr, loc, reasons=None, extra=None):
-        src, dst, other, n, off, b, top = key[:7]
-        _emit({"module": "anomaly_if", "time": datetime.now().isoformat(timespec="seconds"),
-               "src_ip": src, "dest_ip": dst, "ext_ip": other, "n_conn": int(n),
-               "direction": "out" if zone(src) == "victim" else "in", "dport_top": top,
-               "n_ports": int(round(math.expm1(float(x[I_N_PORTS])))),
-               "dports": ",".join(str(p) for p in key[7]) if len(key) > 7 else "",
-               "zone_other": zone(other), "frac_out": round(float(x[I_FRAC_OUT]), 3),
-               "window_start": _iso(b * WINDOW_MIN * 60 + off),
-               "location": loc, "score": float(sc), "thr": thr,
-               "reasons": reasons if reasons is not None else explain(x, m["med"], m["scale"], FEATS),
-               **(extra or {})})
-
-    # ---- runtime ----
-    def detect(path, last_min=None, score_q=None, score_q_in=None):
-        m = _load(model_path, FEATS); thr = _thr_q(m, score_q)
-        mi = _inbound(m); thr_i = _thr_q(mi, score_q_in) if mi is not None else None
-        if mi is None: print("[BEHAVIOR-IF] chiều vào: bỏ qua (model chưa có khóa 'inbound', chạy mục 9 của notebook).")
-        rar_in = (mi["rarity_counts"], mi["rarity_total"]) if mi is not None else None
-        keys, X = build_matrix(path, m["rarity_counts"], m["rarity_total"], last_min, rar_in)
-        if len(X) == 0:
-            print("[BEHAVIOR-IF] không có cặp-cửa-sổ nào để chấm."); return
-        fired = {"out": 0, "in": 0}; n = {"out": 0, "in": 0}
-        for i, sc, mm, t in score_split(keys, X, m, thr, mi, thr_i):
-            d = "in" if mm is mi else "out"; n[d] += 1
-            if sc > t:
-                fired[d] += 1; _emit_beh(keys[i], X[i], sc, mm, t, f"cửa sổ {WINDOW_MIN}' (off {keys[i][4]//60}')")
-        print(f"[BEHAVIOR-IF] chiều ra: {n['out']} cặp-cửa-sổ, {fired['out']} vượt ngưỡng ({thr:.4f})"
-              + (f" | chiều vào: {n['in']} cặp-cửa-sổ, {fired['in']} vượt ngưỡng ({thr_i:.4f})" if mi is not None else ""))
-
-    def live(path, interval=None, score_q=None, score_q_in=None):
-        # Đọc tăng dần eve.json và giữ flow gần đây trong bộ đệm. Mỗi cửa sổ chấm một lần khi đồng hồ qua cuối cửa sổ cộng
-        # FLOW_DELAY và cửa sổ chưa mất luồng (do cắt bộ đệm hay do mới khởi động), nên trùng cửa sổ của notebook.
-        m = _load(model_path, FEATS); thr = _thr_q(m, score_q); iv = interval or 30
-        rc, rt = m["rarity_counts"], m["rarity_total"]
-        print(f"[BEHAVIOR-IF live] model có {len(FEATS)} đặc trưng, cửa sổ {WINDOW_MIN}', ngưỡng={thr:.4f}, mỗi {iv}s", flush=True)
-        mi = _inbound(m); thr_i = _thr_q(mi, score_q_in) if mi is not None else None
-        rar_in = (mi["rarity_counts"], mi["rarity_total"]) if mi is not None else None
-        print("[BEHAVIOR-IF live] chiều vào: " + (f"bật, ngưỡng={thr_i:.4f}" if mi is not None else "tắt (model chưa có khóa 'inbound')"), flush=True)
-        if EP_ON:
-            print(f"[BEHAVIOR-IF live] gom cảnh báo theo sự cố: đóng sau {EP_QUIET // 60}' yên lặng, nhắc lại sau "
-                  + (f"{EP_REMIND // 60}'" if EP_REMIND else "(tắt)"), flush=True)
-        else:
-            print("[BEHAVIOR-IF live] gom cảnh báo theo sự cố: tắt (mỗi bucket 30' một cảnh báo)", flush=True)
-        seen = set(); scored = set(); buf = []; last_note = 0.0
-        ep = {}                                            # sự cố đang mở: (nguồn, đích) -> trạng thái
-        st = _tail_start(path)                             # bắt đầu từ CUỐI file: chỉ dựng cửa sổ từ flow MỚI
-        W = WINDOW_MIN * 60
-
-        def _su_co(kk, sc, t, reasons):
-            """Cửa sổ bị gắn cờ kk có sinh cảnh báo không: trả (trạng thái, các trường sự cố); trạng thái None nghĩa là chỉ
-            cộng dồn vào sự cố đang mở. Thời gian tính theo thời điểm bắt đầu cửa sổ, không theo giờ máy."""
-            p = (kk[0], kk[1]); tw = kk[5] * W + kk[4]
-            sev = _severity(sc, t); top = reasons[0][0] if reasons else ""
-            e = ep.get(p)
-            if e is None or tw - e["last"] > EP_QUIET:
-                e = ep[p] = {"id": f"{p[0]}>{p[1]}@{_iso(tw)}", "start": tw, "last": tw, "emit": tw,
-                             "sev": sev, "tops": {top}, "n": 1, "n_emit": 0}
-                state = "new"
-            else:
-                e["n"] += 1; e["last"] = max(e["last"], tw)
-                if sev == "high" and e["sev"] != "high": state = "escalated"
-                elif top and top not in e["tops"]: state = "new_behavior"
-                elif EP_REMIND and tw - e["emit"] >= EP_REMIND: state = "ongoing"
-                else: state = None
-                e["tops"].add(top)
-                if sev == "high": e["sev"] = "high"
-            if state is not None:
-                e["emit"] = tw; e["n_emit"] += 1
-            return state, {"episode": e["id"], "episode_state": state, "episode_start": _iso(e["start"]),
-                           "episode_windows": e["n"]}
-        KEEP = W + WINDOW_HOP_MIN * 60 + FLOW_DELAY        # giữ flow tới khi mọi cửa sổ chứa nó đã được chấm
-        clock = None; t_from = None                        # cửa sổ bắt đầu trước t_from có thể thiếu luồng
-        while True:
-            tmax = None
-            for line in _tail_lines(path, st):
-                if '"event_type":"flow"' not in line and '"event_type": "flow"' not in line: continue
-                try: o = json.loads(line)
-                except Exception: continue
-                r = flow_row(o, rc, rt, rar_in)
-                if r is None: continue
-                en = r[1][0] + r[1][3]
-                if en > time.time() + 300: continue        # mốc thời gian ở tương lai (đồng hồ lệch): bỏ, để không đẩy đồng hồ đi xa
-                buf.append(r)                              # r = ((src,dst), row)
-                if tmax is None or en > tmax: tmax = en
-            if tmax is not None:
-                clock = tmax if clock is None else max(clock, tmax)
-                if t_from is None: t_from = clock          # lần đọc đầu: cửa sổ đã mở trước lúc khởi động bị bỏ qua
-            if buf and clock is not None:
-                P = collections.defaultdict(list)
-                for (pk, row) in buf: P[pk].append(row)
-                keys, X = _windows_from_P(P)
-                chon = [i for i, k in enumerate(keys)
-                        if t_from <= k[5] * W + k[4] <= clock - W - FLOW_DELAY and (k[0], k[1], k[4], k[5]) not in scored]
-                if chon:
-                    keys = [keys[i] for i in chon]; X = X[chon]
-                    scored.update((k[0], k[1], k[4], k[5]) for k in keys)
-                    gan_co = sorted(((i, sc, mm, t) for i, sc, mm, t in score_split(keys, X, m, thr, mi, thr_i) if sc > t),
-                                    key=lambda z: keys[z[0]][5] * W + keys[z[0]][4])   # theo thời điểm bắt đầu cửa sổ
-                    for i, sc, mm, t in gan_co:
-                        kk = keys[i]; k = (kk[0], kk[1], kk[5])  # (nguồn, đích, bucket): hai lưới lệch 15' gộp một cảnh báo
-                        if k in seen: continue
-                        seen.add(k)
-                        reasons = explain(X[i], mm["med"], mm["scale"], FEATS)
-                        extra = None
-                        if EP_ON:
-                            state, extra = _su_co(kk, sc, t, reasons)
-                            if state is None:                  # cộng dồn vào sự cố đang mở: không ghi tệp cảnh báo, chỉ in ra nhật ký
-                                print(f"[BEHAVIOR-IF live] cộng dồn vào sự cố {extra['episode']}: cửa sổ từ {_iso(kk[5] * W + kk[4])}, "
-                                      f"điểm {sc:.3f}, {extra['episode_windows']} bucket bất thường", flush=True)
-                                continue
-                        _emit_beh(kk, X[i], sc, mm, t, f"cửa sổ {WINDOW_MIN}'", reasons, extra)
-            if clock is not None:                          # cắt flow quá cũ SAU khi đã chấm
-                lo = clock - KEEP
-                t_from = max(t_from, lo)
-                buf = [rr for rr in buf if rr[1][0] + rr[1][3] >= lo]
-                buf, note = cap_buffer(buf)
-                if note and time.time() - last_note > 60:
-                    print(f"[BEHAVIOR-IF live] bộ đệm chạm giới hạn ({'; '.join(note)}), chỉ giữ luồng mới nhất", flush=True)
-                    last_note = time.time()
-                bmin = int((lo - W) // W)
-                seen = {k for k in seen if k[2] >= bmin}       # bỏ khóa của cửa sổ đã trôi qua
-                scored = {k for k in scored if k[3] >= bmin}
-                if EP_ON:                                  # đóng sự cố đã yên lặng quá EP_QUIET (cửa sổ chưa chấm đều bắt đầu sau han - 15')
-                    han = clock - W - FLOW_DELAY
-                    for p in [p for p, e in ep.items() if han - e["last"] > EP_QUIET + WINDOW_HOP_MIN * 60]:
-                        e = ep.pop(p)
-                        print(f"[BEHAVIOR-IF live] đóng sự cố {e['id']}: {e['n']} bucket bất thường, {e['n_emit']} cảnh báo, "
-                              f"cửa sổ bất thường cuối bắt đầu {_iso(e['last'])}", flush=True)
-            time.sleep(iv)
-
-    # ---- Tầng 1: cảnh báo nhanh ----
-    # Mỗi lượt đọc chấm lại các cửa sổ chưa chốt với luồng đã tới và báo ngay khi vượt ngưỡng; cửa sổ chốt khi đồng hồ
-    # qua cuối cửa sổ cộng delay_s. Tham số và tham chiếu ở khóa "rt" của joblib; thiếu khóa này thì Tầng 1 tắt.
+    # ---- engine chấm sớm ----
+    # Mỗi chiều một tham chiếu với độ dài cửa sổ riêng (chiều vào 2 phút, chiều ra 30 phút). Mỗi lượt đọc chấm lại các cửa sổ
+    # chưa chốt vừa có thêm luồng và báo ngay khi vượt ngưỡng; cửa sổ chốt khi đồng hồ qua cuối cửa sổ cộng delay_s. Tham số
+    # và tham chiếu ở khóa "rt" của joblib; thiếu khóa này thì Behavior-IF tắt.
     def _load_rt():
         import joblib
         rt = joblib.load(model_path).get("rt")
         if not rt:
             return None
-        mo = _chon_cot(rt["out"], FEATS, "Tầng 1 chiều ra")
-        mi = _chon_cot(rt["inbound"], FEATS, "Tầng 1 chiều vào") if rt.get("inbound") else None
+        mo = _chon_cot(rt["out"], FEATS, "Behavior-IF chiều ra")
+        mi = _chon_cot(rt["inbound"], FEATS, "Behavior-IF chiều vào") if rt.get("inbound") else None
         return mo, mi, rt
 
     def _nhan_hanh_vi(x, m, direction, zone_src):
@@ -400,21 +226,20 @@ def _build_behavior(model_path="net_if_model.joblib"):
                "n_ports": int(round(math.expm1(float(x[I_N_PORTS])))),
                "dports": ",".join(str(p) for p in key[8]) if len(key) > 8 else "",
                "zone_other": zone(other), "frac_out": round(float(x[I_FRAC_OUT]), 3),
-               "window_start": _iso(b * W + off), "location": f"cửa sổ {W // 60}' (Tầng 1)",
+               "window_start": _iso(b * W + off), "location": f"cửa sổ {W // 60}'",
                "score": float(sc), "thr": thr,
                **({"behavior": beh} if beh else {}),
                "reasons": reasons if reasons is not None else explain(x, m["med"], m["scale"], FEATS), **(extra or {})})
 
-    def _su_co_rt(ep, p, ws, sc, t, reasons, QUIET):
-        """Chính sách báo của Tầng 1, như Tầng 2 nhưng không nhắc lại định kỳ: mở sự cố mới khi cặp đã yên quá QUIET;
-        trong sự cố chỉ báo lại khi tăng lên high hoặc đặc trưng lệch nhất đổi sang đặc trưng chưa gặp. Trả (trạng thái hoặc None,
-        sự cố)."""
+    def _su_co_rt(ep, p, ws, sc, t, reasons, QUIET, cua_so_moi=True):
+        """Chính sách báo: mở sự cố mới khi cặp đã yên quá QUIET; trong sự cố chỉ báo lại khi tăng lên high hoặc đặc trưng
+        lệch nhất đổi sang đặc trưng chưa gặp, không nhắc lại định kỳ. Trả (trạng thái hoặc None, sự cố)."""
         sev, top = _severity(sc, t), (reasons[0][0] if reasons else "")
         e = ep.get(p)
         if e is None or ws - e["last"] > QUIET:
             e = ep[p] = {"id": f"{p[0]}>{p[1]}@{_iso(ws)}", "start": ws, "last": ws, "n": 1, "sev": sev, "tops": {top}}
             return "new", e
-        e["n"] += 1
+        if cua_so_moi: e["n"] += 1
         e["last"] = max(e["last"], ws)
         if sev == "high" and e["sev"] != "high": state = "escalated"
         elif top and top not in e["tops"]: state = "new_behavior"
@@ -423,9 +248,10 @@ def _build_behavior(model_path="net_if_model.joblib"):
         if sev == "high": e["sev"] = "high"
         return state, e
 
-    def _cua_so_rt(P, W, H, han_fn, bo_qua):
-        """Cửa sổ Tầng 1 từ P[(nguồn, đích)] = [(row, thời điểm tới)], chỉ lấy luồng tới không muộn hơn han_fn(ws);
-        khóa bị bo_qua loại thì bỏ. Phần tử thứ tám của khóa là lúc bắt đầu của luồng sớm nhất, dùng tính lat_s."""
+    def _cua_so_rt(P, W, H, han_fn, bo_qua, da_thay=None):
+        """Cửa sổ từ P[(nguồn, đích)] = [(row, thời điểm tới)], chỉ lấy luồng tới không muộn hơn han_fn(ws);
+        khóa bị bo_qua loại thì bỏ. da_thay (từ điển khóa -> số luồng ở lần chấm trước): cửa sổ không có thêm luồng thì
+        không dựng lại. Phần tử thứ tám của khóa là lúc bắt đầu của luồng sớm nhất, dùng tính lat_s."""
         keys, X = [], []
         for (s, d), items in P.items():
             for off in range(0, W, H):
@@ -440,135 +266,188 @@ def _build_behavior(model_path="net_if_model.joblib"):
                     rws = [row for row, toi in its if toi <= han]
                     if len(rws) < MIN_CONN:
                         continue
+                    if da_thay is not None:
+                        dau_vet = (len(rws), rws[-1][0])
+                        if da_thay.get((s, d, off, b)) == dau_vet:
+                            continue
+                        da_thay[(s, d, off, b)] = dau_vet
                     c = list(zip(*rws))
                     X.append(feature_vector(c[0], c[1], c[2], c[3], c[4], c[5], c[6]))
                     keys.append((s, d, ext_ip(s, d), len(rws), off, b, int(collections.Counter(c[4]).most_common(1)[0][0]),
                                  min(c[0]), sorted({int(p) for p in c[4]})[:DPORTS_MAX]))
         return keys, (np.array(X) if X else np.empty((0, len(FEATS))))
 
-    def _rt_quiet(cfg):
-        # ANOMALY_RT_QUIET_MIN đổi thời gian yên lặng của sự cố Tầng 1 khi triển khai (phút; mặc định theo joblib, 15 phút).
+    def _tham_so(m, rt, score_q=None):
+        """Tham số cửa sổ của một tham chiếu; joblib cũ ghi chung ở khóa "rt". ANOMALY_RT_QUIET_MIN đổi thời gian yên lặng của
+        sự cố khi triển khai (phút). Thời gian yên lặng không nhỏ hơn bước trượt: hai cửa sổ chồng nhau cùng chứa một hành
+        vi phải thuộc một sự cố, nếu không chiều ra (bước 15 phút) sẽ báo hai lần cho cùng một hành vi."""
         ov = os.environ.get("ANOMALY_RT_QUIET_MIN")
-        return float(ov) * 60 if ov else float(cfg.get("quiet_s", 900))
+        W = int(m.get("window_min", rt.get("window_min", 2)) * 60)
+        H = int(m.get("window_hop_min", rt.get("window_hop_min", 1)) * 60)
+        yen = float(ov) * 60 if ov else float(m.get("quiet_s", rt.get("quiet_s", 900)))
+        return types.SimpleNamespace(m=m, W=W, H=H, D=float(rt["delay_s"]), quiet=max(yen, float(H)),
+                                     rescore=bool(m.get("rescore", False)), thr=_thr_q(m, score_q),
+                                     buf=[], fired=set(), done=set(), seen={}, ep={}, last_note=0.0)
 
-    def tang1(mo, mi, cfg, score_q=None, score_q_in=None, phat=None):
-        """Bộ xử lý Tầng 1: doc(dòng) nhận dòng eve.json mới, cập nhật đồng hồ, chấm lại cửa sổ chưa chốt và gọi phat(...)
-        cho cửa sổ vượt ngưỡng lần đầu; trạng thái None là cộng dồn vào sự cố đang mở, không báo."""
-        W, H = int(cfg["window_min"] * 60), int(cfg["window_hop_min"] * 60)
-        D, QUIET = float(cfg["delay_s"]), _rt_quiet(cfg)
-        thr_o = _thr_q(mo, score_q)
-        thr_i = _thr_q(mi, score_q_in) if mi is not None else None
-        rc, rt = mo["rarity_counts"], mo["rarity_total"]
+    def rt_engine(mo, mi, rt, score_q=None, score_q_in=None, phat=None):
+        """Bộ xử lý: doc(dòng) nhận dòng eve.json mới, cập nhật đồng hồ chung, rồi với từng chiều chấm lại các cửa sổ chưa
+        chốt vừa có thêm luồng và gọi phat(...) cho lần chấm vượt ngưỡng; trạng thái None là cộng dồn vào sự cố đang mở,
+        không báo. Cửa sổ đã vượt ngưỡng chỉ được chấm tiếp khi tham chiếu đặt rescore (chiều ra)."""
+        C = {"out": _tham_so(mo, rt, score_q)}
+        if mi is not None: C["in"] = _tham_so(mi, rt, score_q_in)
+        rc, rtot = mo["rarity_counts"], mo["rarity_total"]
         rar_in = (mi["rarity_counts"], mi["rarity_total"]) if mi is not None else None
-        KEEP = W + H + D + 60
-        s = types.SimpleNamespace(clock=None, t_from=None, buf=[], fired=set(), done=set(), ep={}, n_alert=0,
-                                  W=W, thr_o=thr_o, thr_i=thr_i, last_note=0.0)
+        s = types.SimpleNamespace(clock=None, t_from=None, n_alert=0, C=C, thr_o=C["out"].thr,
+                                  thr_i=C["in"].thr if "in" in C else None, im_lang=False)
 
-        def mac_dinh(kk, x, sc, mm, t, extra, state, reasons):
-            if state is not None:
+        def mac_dinh(kk, x, sc, mm, t, W, extra, state, reasons):
+            if state is not None and not s.im_lang:
                 s.n_alert += 1
                 _emit_rt(kk, x, sc, mm, t, W, extra, reasons)
+
+        def cham(c):
+            if not c.buf:
+                return
+            clock, W, D = s.clock, c.W, c.D
+            P = collections.defaultdict(list)
+            for pk, item in c.buf: P[pk].append(item)
+
+            def bo_qua(k, ws):
+                if ws < s.t_from or k in c.done or (k in c.fired and not c.rescore):
+                    return True
+                if clock > ws + W + D:                           # lần chấm cuối của cửa sổ này
+                    c.done.add(k)
+                return False
+            keys, X = _cua_so_rt(P, W, c.H, lambda ws: min(clock, ws + W + D), bo_qua, c.seen)
+            if len(X):
+                diem = _score(c.m, X)
+                for i in sorted(np.flatnonzero(diem > c.thr), key=lambda i: keys[i][5] * W + keys[i][4]):
+                    kk = keys[i]; k4 = (kk[0], kk[1], kk[4], kk[5]); sc = float(diem[i])
+                    moi = k4 not in c.fired
+                    c.fired.add(k4)
+                    ws = kk[5] * W + kk[4]
+                    reasons = explain(X[i], c.m["med"], c.m["scale"], FEATS)
+                    state, e = _su_co_rt(c.ep, (kk[0], kk[1]), ws, sc, c.thr, reasons, c.quiet, moi)
+                    extra = {"episode": e["id"], "episode_state": state or "", "episode_start": _iso(e["start"]),
+                             "episode_windows": e["n"], "t_det_s": round(clock - ws, 1),
+                             "lat_s": round(time.time() - kk[7], 1)}
+                    (phat or mac_dinh)(kk, X[i], sc, c.m, c.thr, W, extra, state, reasons)
+            lo = clock - (W + c.H + D + 60)                      # cắt luồng của các cửa sổ đã chốt
+            c.buf = [it for it in c.buf if it[1][0][0] >= lo]
+            c.buf, note = cap_buffer(c.buf)
+            if note and time.time() - c.last_note > 60:
+                print(f"[BEHAVIOR-IF live] bộ đệm chạm giới hạn ({'; '.join(note)}), chỉ giữ luồng mới nhất", flush=True)
+                c.last_note = time.time()
+            bmin = int((lo - W) // W) - 1
+            c.fired = {k for k in c.fired if k[3] >= bmin}
+            c.done = {k for k in c.done if k[3] >= bmin}
+            c.seen = {k: v for k, v in c.seen.items() if k[3] >= bmin}
+            for p in [p for p, e in c.ep.items() if clock - e["last"] > c.quiet + W + D]:
+                c.ep.pop(p)
 
         def doc(lines):
             for line in lines:
                 if '"event_type":"flow"' not in line and '"event_type": "flow"' not in line: continue
                 try: o = json.loads(line)
                 except Exception: continue
-                r = flow_row(o, rc, rt, rar_in)
+                r = flow_row(o, rc, rtot, rar_in)
                 if r is None: continue
+                d = "out" if zone(r[0][0]) == "victim" else "in"
+                if d not in C: continue
                 en = r[1][0] + r[1][3]
                 if en > time.time() + 300: continue            # mốc thời gian ở tương lai (đồng hồ lệch): bỏ
                 s.clock = en if s.clock is None else max(s.clock, en)
                 if s.t_from is None: s.t_from = s.clock          # cửa sổ mở trước lúc khởi động bị bỏ qua
-                s.buf.append((r[0], (r[1], s.clock)))            # thời điểm tới = đồng hồ ngay sau khi đọc luồng
-            if not s.buf or s.clock is None:
+                C[d].buf.append((r[0], (r[1], s.clock)))         # thời điểm tới = đồng hồ ngay sau khi đọc luồng
+            if s.clock is None:
                 return
-            clock = s.clock
-            P = collections.defaultdict(list)
-            for pk, item in s.buf: P[pk].append(item)
-
-            def bo_qua(k, ws):
-                if ws < s.t_from or k in s.fired or k in s.done:
-                    return True
-                if clock > ws + W + D:                           # lần chấm cuối của cửa sổ này
-                    s.done.add(k)
-                return False
-            keys, X = _cua_so_rt(P, W, H, lambda ws: min(clock, ws + W + D), bo_qua)
-            if len(X):
-                gan_co = sorted(((i, sc, mm, t) for i, sc, mm, t in score_split(keys, X, mo, thr_o, mi, thr_i) if sc > t),
-                                key=lambda z: keys[z[0]][5] * W + keys[z[0]][4])
-                for i, sc, mm, t in gan_co:
-                    kk = keys[i]
-                    s.fired.add((kk[0], kk[1], kk[4], kk[5]))
-                    ws = kk[5] * W + kk[4]
-                    reasons = explain(X[i], mm["med"], mm["scale"], FEATS)
-                    state, e = _su_co_rt(s.ep, (kk[0], kk[1]), ws, sc, t, reasons, QUIET)
-                    extra = {"episode": e["id"], "episode_state": state or "", "episode_start": _iso(e["start"]),
-                             "episode_windows": e["n"], "t_det_s": round(clock - ws, 1),
-                             "lat_s": round(time.time() - kk[7], 1)}
-                    (phat or mac_dinh)(kk, X[i], sc, mm, t, extra, state, reasons)
-            lo = clock - KEEP                                    # cắt luồng của các cửa sổ đã chốt
-            s.buf = [it for it in s.buf if it[1][0][0] >= lo]
-            s.buf, note = cap_buffer(s.buf)
-            if note and time.time() - s.last_note > 60:
-                print(f"[TẦNG 1 live] bộ đệm chạm giới hạn ({'; '.join(note)}), chỉ giữ luồng mới nhất", flush=True)
-                s.last_note = time.time()
-            bmin = int((lo - W) // W) - 1
-            s.fired = {k for k in s.fired if k[3] >= bmin}
-            s.done = {k for k in s.done if k[3] >= bmin}
-            for p in [p for p, e in s.ep.items() if clock - e["last"] > QUIET + W + D]:
-                s.ep.pop(p)
+            for c in C.values(): cham(c)
 
         s.doc = doc
         return s
 
     def detect_rt(path, last_min=None, score_q=None, score_q_in=None):
-        """Tầng 1 trên một tệp có sẵn: chấm mọi cửa sổ ngắn với đủ luồng, cửa sổ bị gắn cờ đầu tiên của mỗi sự cố phát một
+        """Chấm một tệp có sẵn: mọi cửa sổ với đủ luồng, cửa sổ bị gắn cờ đầu tiên của mỗi sự cố phát một
         cảnh báo."""
         blob = _load_rt()
         if blob is None:
-            print("[TẦNG 1] bỏ qua: model chưa có khóa 'rt' (chạy mục Tầng 1 của notebook rồi xuất lại joblib)."); return
-        mo, mi, cfg = blob
-        W, H, QUIET = int(cfg["window_min"] * 60), int(cfg["window_hop_min"] * 60), _rt_quiet(cfg)
-        thr_o = _thr_q(mo, score_q)
-        thr_i = _thr_q(mi, score_q_in) if mi is not None else None
+            print("[BEHAVIOR-IF] bỏ qua: model chưa có khóa 'rt' (chạy notebook Behavior-IF rồi xuất lại joblib)."); return
+        mo, mi, rt = blob
         rar_in = (mi["rarity_counts"], mi["rarity_total"]) if mi is not None else None
         Pr = read_pairs(path, mo["rarity_counts"], mo["rarity_total"], last_min, rar_in)
-        keys, X = _cua_so_rt({k: [(r, 0.0) for r in v] for k, v in Pr.items()}, W, H, lambda ws: np.inf,
-                             lambda k, ws: False)
-        if not len(X):
-            print("[TẦNG 1] không có cửa sổ nào để chấm."); return
-        gan_co = sorted(((i, sc, mm, t) for i, sc, mm, t in score_split(keys, X, mo, thr_o, mi, thr_i) if sc > t),
-                        key=lambda z: keys[z[0]][5] * W + keys[z[0]][4])
-        ep, n = {}, 0
-        for i, sc, mm, t in gan_co:
-            kk = keys[i]
-            ws = kk[5] * W + kk[4]
-            reasons = explain(X[i], mm["med"], mm["scale"], FEATS)
-            state, e = _su_co_rt(ep, (kk[0], kk[1]), ws, sc, t, reasons, QUIET)
-            if state is not None:
-                n += 1
-                _emit_rt(kk, X[i], sc, mm, t, W, {"episode": e["id"], "episode_state": state,
-                                                  "episode_start": _iso(e["start"]), "episode_windows": e["n"]}, reasons)
-        print(f"[TẦNG 1] {len(keys)} cửa sổ {W // 60}', {len(gan_co)} vượt ngưỡng (ra {thr_o:.4f}"
-              + (f", vào {thr_i:.4f}" if thr_i is not None else "") + f"), {n} cảnh báo sau khi gom sự cố")
+        for d, m, sq in (("out", mo, score_q), ("in", mi, score_q_in)):
+            if m is None: continue
+            c = _tham_so(m, rt, sq)
+            P = {k: [(r, 0.0) for r in v] for k, v in Pr.items() if (zone(k[0]) == "victim") == (d == "out")}
+            keys, X = _cua_so_rt(P, c.W, c.H, lambda ws: np.inf, lambda k, ws: False)
+            if not len(X):
+                print(f"[BEHAVIOR-IF] chiều {'ra' if d == 'out' else 'vào'}: không có cửa sổ nào để chấm."); continue
+            diem = _score(m, X); n = 0
+            gan_co = sorted(np.flatnonzero(diem > c.thr), key=lambda i: keys[i][5] * c.W + keys[i][4])
+            for i in gan_co:
+                kk = keys[i]; ws = kk[5] * c.W + kk[4]
+                reasons = explain(X[i], m["med"], m["scale"], FEATS)
+                state, e = _su_co_rt(c.ep, (kk[0], kk[1]), ws, float(diem[i]), c.thr, reasons, c.quiet)
+                if state is not None:
+                    n += 1
+                    _emit_rt(kk, X[i], float(diem[i]), m, c.thr, c.W, {"episode": e["id"], "episode_state": state,
+                             "episode_start": _iso(e["start"]), "episode_windows": e["n"]}, reasons)
+            print(f"[BEHAVIOR-IF] chiều {'ra' if d == 'out' else 'vào'}: {len(keys)} cửa sổ {c.W // 60}', {len(gan_co)} vượt ngưỡng "
+                  f"({c.thr:.4f}), {n} cảnh báo sau khi gom sự cố")
+
+    _END = re.compile(r'"end"\s*:\s*"([^"]+)"')
+
+    def khoi_dong_am(s, path, buoc=10.0, giu_s=7200.0):
+        """Đọc lại phần cuối eve.json để dựng lại các cửa sổ và sự cố đang mở (cửa sổ chiều ra dài 30 phút; không đọc lại thì
+        sau mỗi lần khởi động chiều ra phải chờ tới mốc 15 phút kế tiếp mới có cửa sổ trọn vẹn). Hai giờ gần nhất của nhật ký
+        được phát lại theo từng bước đồng hồ như khi chạy, nên trạng thái sự cố giống một engine chạy liên tục; phần đọc lại
+        không phát cảnh báo. ANOMALY_WARM_MB đổi dung lượng đọc lại (mặc định 64 MB, 0 là tắt). Trả vị trí đọc tiếp."""
+        mb = float(os.environ.get("ANOMALY_WARM_MB") or 64)
+        if mb <= 0:
+            return _tail_start(path)
+        lines, st = _tail_warm(path, mb * 1e6)
+        luong, dong_ho = [], None
+        for line in lines:
+            if '"event_type":"flow"' not in line and '"event_type": "flow"' not in line: continue
+            m = _END.search(line)
+            t = parse(m.group(1)) if m else None
+            if t is None: continue
+            dong_ho = t if dong_ho is None else max(dong_ho, t)
+            luong.append((dong_ho, line))
+        if not luong:
+            return st
+        luong = [x for x in luong if x[0] >= dong_ho - giu_s]
+        s.im_lang = True
+        try:
+            nhom, moc = [], math.ceil(luong[0][0] / buoc) * buoc
+            for t, line in luong:
+                if t > moc:
+                    s.doc(nhom); nhom, moc = [], math.ceil(t / buoc) * buoc
+                nhom.append(line)
+            s.doc(nhom)
+        finally:
+            s.im_lang = False
+        print(f"[BEHAVIOR-IF live] khởi động ấm: phát lại {len(luong)} luồng của {min(giu_s, dong_ho - luong[0][0]) / 60:.0f} phút gần nhất để dựng lại "
+              f"cửa sổ đang mở, không phát cảnh báo cho phần này", flush=True)
+        return st
 
     def live_rt(path, interval=None, score_q=None, score_q_in=None):
         blob = _load_rt()
         if blob is None:
-            print("[TẦNG 1 live] tắt: model chưa có khóa 'rt' (chạy mục Tầng 1 của notebook rồi xuất lại joblib).", flush=True)
+            print("[BEHAVIOR-IF live] tắt: model chưa có khóa 'rt' (chạy notebook Behavior-IF rồi xuất lại joblib).", flush=True)
             return
-        mo, mi, cfg = blob
-        s = tang1(mo, mi, cfg, score_q, score_q_in)
+        mo, mi, rt = blob
+        s = rt_engine(mo, mi, rt, score_q, score_q_in)
         # ANOMALY_RT_INTERVAL_S đổi chu kỳ đọc và chấm lại khi triển khai (mặc định theo joblib, 10 giây).
-        iv = interval or int(os.environ.get("ANOMALY_RT_INTERVAL_S") or cfg.get("interval_s", 10))
-        print(f"[TẦNG 1 live] cửa sổ {cfg['window_min']}', trượt {cfg['window_hop_min']}', chấm lại mỗi {iv}s, chốt cửa sổ "
-              f"sau {cfg['delay_s']}s | ngưỡng ra {s.thr_o:.4f}" + (f", vào {s.thr_i:.4f}" if s.thr_i is not None else "")
-              + f" | gom sự cố {int(_rt_quiet(cfg)) // 60}'", flush=True)
-        st = _tail_start(path)
+        iv = interval or int(os.environ.get("ANOMALY_RT_INTERVAL_S") or rt.get("interval_s", 10))
+        for d, c in s.C.items():
+            print(f"[BEHAVIOR-IF live] chiều {'ra' if d == 'out' else 'vào'}: cửa sổ {c.W // 60}', trượt {c.H // 60}', chốt sau "
+                  f"{c.D:.0f}s | ngưỡng {c.thr:.4f} | gom sự cố {int(c.quiet) // 60}'"
+                  + (" | chấm tiếp cửa sổ đã vượt ngưỡng" if c.rescore else ""), flush=True)
+        print(f"[BEHAVIOR-IF live] chấm lại mỗi {iv}s", flush=True)
+        st = khoi_dong_am(s, path, float(iv))
         while True:
             s.doc(_tail_lines(path, st))
             time.sleep(iv)
 
-    return types.SimpleNamespace(detect=detect, live=live, detect_rt=detect_rt, live_rt=live_rt, tang1=tang1,
-                                 load_rt=_load_rt)
+    return types.SimpleNamespace(detect=detect_rt, live=live_rt, rt_engine=rt_engine, load_rt=_load_rt, warm=khoi_dong_am)

@@ -124,6 +124,21 @@ def _tail_start(path):
         return {"pos": 0, "tail": b""}
 
 
+def _tail_warm(path, max_bytes):
+    """Đọc lại tối đa max_bytes cuối của eve.json lúc khởi động. Trả (các dòng trọn vẹn, vị trí đọc tiếp cho _tail_lines)."""
+    try:
+        size = os.path.getsize(path); start = max(0, size - int(max_bytes))
+        with open(path, "rb") as f:
+            f.seek(start); data = f.read(size - start)
+    except OSError:
+        return [], {"pos": 0, "tail": b""}
+    parts = data.split(b"\n")
+    if start > 0:
+        parts = parts[1:]                                      # dòng đầu có thể bị cắt giữa chừng
+    tail = parts.pop() if parts else b""
+    return [x.decode("utf-8", errors="ignore") for x in parts], {"pos": start + len(data), "tail": tail}
+
+
 def _chon_cot(m, feats, ten):
     """Gắn chỉ số cột cho một mô hình: 'feats' là các cột rừng học (theo thứ tự của mu/sd), 'feats_all' là bộ
     đặc trưng tính cho mỗi đơn vị (med/scale theo bộ này). Joblib cũ không có 'feats_all' thì dùng 'feats'."""

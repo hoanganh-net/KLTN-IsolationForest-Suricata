@@ -18,11 +18,12 @@ from isolationforest import IsolationForest
 
 # 1. Đặc trưng từ vựng của một đơn vị (chuỗi)
 FEATS = ["log_len", "r_nonalnum", "r_digit", "r_upper", "entropy", "n_squote", "n_dquote",
-         "n_angle", "n_paren", "n_punct_inj", "n_kw", "n_pct", "max_run_sym"]
-# Rừng học trên 11 cột; n_angle và n_pct chỉ dùng để diễn giải và kiểm tra miền
-FEATS_Q = ["log_len", "r_nonalnum", "r_digit", "r_upper", "entropy", "n_squote", "n_dquote",
+         "n_angle", "n_paren", "n_punct_inj", "n_kw", "n_pct", "max_run_sym", "n_slash"]
+# n_angle và n_pct không vào rừng, chỉ dùng để diễn giải và kiểm tra miền. Web-Body IF học 11 cột; Web-Query IF học thêm
+# n_slash (số dấu gạch chéo), đặc trưng duy nhất qua được phép chọn trên tập phát triển mà không làm tăng báo nhầm ngoài miền
+FEATS_B = ["log_len", "r_nonalnum", "r_digit", "r_upper", "entropy", "n_squote", "n_dquote",
            "n_paren", "n_punct_inj", "n_kw", "max_run_sym"]
-FEATS_B = list(FEATS_Q)          # Web-Body IF dùng cùng 11 cột
+FEATS_Q = FEATS_B + ["n_slash"]
 IDX = {"q": [FEATS.index(f) for f in FEATS_Q], "b": [FEATS.index(f) for f in FEATS_B]}
 
 _KW = re.compile(
@@ -62,7 +63,8 @@ def feature_vector(s):
     return [math.log1p(n), nonalnum / n, digit / n, upper / n, _entropy(s),
             float(s.count("'")), float(s.count('"')), float(s.count("<") + s.count(">")),
             float(s.count("(") + s.count(")")), float(sum(s.count(c) for c in _INJ)),
-            float(len(_KW.findall(s))), float(len(_PCT.findall(s))), float(_max_run_symbol(s))]
+            float(len(_KW.findall(s))), float(len(_PCT.findall(s))), float(_max_run_symbol(s)),
+            float(s.count("/") + s.count("\\"))]
 
 
 _cache = {}      # đệm đặc trưng theo chuỗi
@@ -75,7 +77,7 @@ def fv(u):
 
 
 def ma_tran(units):
-    """Ma trận đặc trưng (số đơn vị x 13 cột) của một danh sách đơn vị."""
+    """Ma trận đặc trưng (số đơn vị x 14 cột) của một danh sách đơn vị."""
     return np.array([fv(u) for u in units], float).reshape(len(units), len(FEATS))
 
 
@@ -264,7 +266,7 @@ def mien(df, pub_sources):
 
 # 6. Huấn luyện và chấm điểm
 def fit_model(X, idx, n_trees, max_samples, seed):
-    """Học một mô hình trên X (đủ 13 cột); rừng chỉ nhận các cột idx đã chuẩn hóa."""
+    """Học một mô hình trên X (đủ 14 cột); rừng chỉ nhận các cột idx đã chuẩn hóa."""
     mu = X.mean(0)
     sd = X.std(0)
     sd = np.where(sd < 1e-9, 1.0, sd)

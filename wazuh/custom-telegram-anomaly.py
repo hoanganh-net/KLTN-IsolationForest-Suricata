@@ -37,13 +37,12 @@ ATTACK = load_attack()
 
 # --- Tên mô-đun thân thiện ---
 MODULE_NAME = {
-    "anomaly_if":       "Hành vi mạng (Behavior-IF)",
-    "anomaly_if_rt":    "Hành vi mạng, cảnh báo nhanh (Behavior-IF Tầng 1)",
+    "anomaly_if_rt":    "Hành vi mạng (Behavior-IF)",
     "anomaly_web":      "Giá trị tham số (Web-Query)",
     "anomaly_web_body": "Văn bản tự do POST (Web-Body)",
 }
-# Hai tầng của Behavior-IF dùng chung bộ đặc trưng hành vi nên dùng chung phần diễn giải và gợi ý kỹ thuật ATT&CK.
-BEH_MODULES = ("anomaly_if", "anomaly_if_rt")
+# Cảnh báo hành vi (Behavior-IF) dùng phần diễn giải và gợi ý kỹ thuật ATT&CK theo đặc trưng hành vi.
+BEH_MODULES = ("anomaly_if_rt",)
 
 # Trạng thái sự cố do anomaly.py --live ghi cho cảnh báo hành vi (gom các cửa sổ bất thường của cùng một cặp nguồn, đích).
 EPISODE_VI = {
@@ -68,8 +67,7 @@ def episode_line(data):
         if st != "new" and data.get("episode_start"):
             s += ", bắt đầu {0}".format(e(_ts(data.get("episode_start"))))
         if data.get("episode_windows"):
-            don_vi = "cửa sổ 2'" if data.get("module") == "anomaly_if_rt" else "bucket 30'"
-            s += ", {0} {1} bất thường".format(e(data.get("episode_windows")), don_vi)
+            s += ", {0} cửa sổ bất thường".format(e(data.get("episode_windows")))
         parts.append(s)
     lat = _num(data.get("lat_s"))
     if data.get("module") == "anomaly_if_rt" and lat is not None and 0 <= lat <= 3600:
@@ -84,7 +82,7 @@ ZSCORE_VI = {
     # Behavior-IF (flow)
     "log_n_conn":      "Số kết nối trong cửa sổ tăng bất thường.",
     "sqrt_mb_out":     "Khối lượng byte đẩy ra ngoài (upload) lớn bất thường.",
-    "log_bytes_in":    "Khối lượng byte nhận vào bất thường.",
+    "sqrt_mb_in":      "Khối lượng byte nhận vào (tải về) lớn bất thường.",
     "frac_out":        "Tỉ lệ byte đi ra chiếm ưu thế (thiên về gửi ra ngoài).",
     "log_throughput":  "Thông lượng (byte/giây) cao bất thường.",
     "log_peak_cpm":    "Kết nối dồn dập nhất trong một phút cao bất thường.",
@@ -107,13 +105,14 @@ ZSCORE_VI = {
     "n_kw":            "Khớp nhiều từ khóa SQL/script độc hại.",
     "n_pct":           "Nhiều chuỗi mã hóa %HH (URL-encoding).",
     "max_run_sym":     "Chuỗi ký tự đặc biệt liền nhau dài bất thường.",
+    "n_slash":         "Nhiều dấu gạch chéo (/ hoặc \\) bất thường, thường gặp ở đường dẫn tệp.",
 }
 
 # Chiều vào: byte đi ra là byte nguồn bên ngoài gửi vào máy chủ, byte nhận vào là byte máy chủ trả về.
 ZSCORE_VI_IN = {
     "log_n_conn":      "Số kết nối từ nguồn bên ngoài trong cửa sổ tăng bất thường.",
     "sqrt_mb_out":     "Khối lượng byte nguồn bên ngoài gửi vào máy chủ lớn bất thường.",
-    "log_bytes_in":    "Khối lượng byte máy chủ trả về cho nguồn bên ngoài bất thường.",
+    "sqrt_mb_in":      "Khối lượng byte máy chủ trả về cho nguồn bên ngoài lớn bất thường.",
     "frac_out":        "Tỉ lệ byte do nguồn bên ngoài gửi vào chiếm ưu thế.",
     "log_throughput":  "Thông lượng (byte/giây) của các kết nối cao bất thường.",
     "log_peak_cpm":    "Số kết nối dồn dập nhất trong một phút cao bất thường.",
@@ -131,7 +130,7 @@ MGMT_NETS = [ipaddress.ip_network("192.168.20.0/24")]   # dự phòng khi cảnh
 # Behavior-IF: mỗi đặc trưng đặc thù "bầu" cho một giả thuyết; giả thuyết có độ lệch lớn nhất được chọn.
 # svc_rarity, log_n_conn, log_throughput chỉ là NGỮ CẢNH, không tự quyết định loại hành vi.
 BEH_VOTE = {"periodicity": "c2", "uniformity": "c2", "sqrt_mb_out": "exfil", "frac_out": "exfil",
-            "log_bytes_in": "ingress", "log_n_ports": "scan", "frac_incomplete": "scan", "log_peak_cpm": "brute"}
+            "sqrt_mb_in": "ingress", "log_n_ports": "scan", "frac_incomplete": "scan", "log_peak_cpm": "brute"}
 BEH = {   # khóa: (nhãn nghi ngờ, mã kỹ thuật ATT&CK hoặc None)
     "c2":       ("Kênh điều khiển theo nhịp (beacon)", "T1071"),
     "exfil":    ("Rút dữ liệu ra ngoài", "T1048"),
