@@ -402,11 +402,12 @@ def _build_behavior(model_path="net_if_model.joblib"):
 
     _END = re.compile(r'"end"\s*:\s*"([^"]+)"')
 
-    def khoi_dong_am(s, path, buoc=10.0, giu_s=7200.0):
+    def khoi_dong_am(s, path, buoc=10.0, giu_s=1200.0):
         """Đọc lại phần cuối eve.json để dựng lại các cửa sổ và sự cố đang mở (không đọc lại thì sự cố
-        đang mở trước lúc khởi động bị quên và được báo lại như sự cố mới). Hai giờ gần nhất của nhật ký
-        được phát lại theo từng bước đồng hồ như khi chạy, nên trạng thái sự cố giống một engine chạy liên tục; phần đọc lại
-        không phát cảnh báo. ANOMALY_WARM_MB đổi dung lượng đọc lại (mặc định 64 MB, 0 là tắt). Trả vị trí đọc tiếp."""
+        đang mở trước lúc khởi động bị quên và được báo lại như sự cố mới). 20 phút gần nhất của nhật ký
+        được phát lại theo từng bước đồng hồ như khi chạy: đủ cho thời gian gom sự cố mặc định 15 phút cộng cửa sổ 30 giây
+        và 75 giây chờ chốt, trạng thái cũ hơn mức đó engine tự xóa; phần đọc lại không phát cảnh báo. ANOMALY_WARM_MB đổi
+        dung lượng đọc lại (mặc định 64 MB, 0 là tắt). Trả vị trí đọc tiếp."""
         mb = float(os.environ.get("ANOMALY_WARM_MB") or 64)
         if mb <= 0:
             return _tail_start(path)

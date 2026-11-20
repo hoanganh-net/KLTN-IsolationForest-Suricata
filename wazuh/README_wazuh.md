@@ -73,7 +73,7 @@ Trên tập kiểm thử, tính theo giờ thật từ luồng đầu tiên củ
 chu kỳ đọc của engine. Phần lớn độ trễ là thời gian chờ Suricata ghi bản ghi flow (xem mục Rút ngắn độ trễ).
 
 Khi khởi động, engine đọc lại phần cuối của `eve.json` (64 MB, đổi bằng `ANOMALY_WARM_MB`, đặt 0 để tắt) và phát lại tối đa
-hai giờ gần nhất mà không ghi cảnh báo, để dựng lại các cửa sổ và sự cố đang mở. Thiếu bước này, sự cố đang mở trước lúc khởi động
+20 phút gần nhất mà không ghi cảnh báo, để dựng lại các cửa sổ và sự cố đang mở. Thiếu bước này, sự cố đang mở trước lúc khởi động
 bị quên và được báo lại như sự cố mới.
 
 Các lần vượt ngưỡng được gom theo sự cố của cặp (`srcip`, `dstip`) trước khi ghi ra `anomaly_alerts.jsonl`, để một hành vi
@@ -241,7 +241,7 @@ Nhánh signature gửi thẻ riêng qua bot `custom-telegram`. Quét nhiều má
 cùng nguồn trong 5 phút có thêm thẻ 100311, từ 10 cảnh báo trong 10 phút thì 100312 chặn nguồn. Trạng thái sự cố nằm trong bộ
 nhớ của anomaly.py: lượt lặp lại trên cùng cặp trong vòng 15 phút kể từ cửa sổ bất thường
 cuối được gộp vào sự cố cũ và không sinh thẻ mới, trừ khi mức độ tăng hoặc đặc trưng lệch nhất đổi. Khởi động lại dịch vụ
-không xóa trạng thái này, vì engine dựng lại sự cố từ hai giờ cuối của nhật ký. Khi tập dượt trước buổi trình diễn, dùng cặp
+không xóa trạng thái này, vì engine dựng lại sự cố từ 20 phút cuối của nhật ký. Khi tập dượt trước buổi trình diễn, dùng cặp
 máy khác, chờ hết thời gian gom hoặc đặt `ANOMALY_RT_QUIET_MIN` nhỏ hơn. Trên phần bình thường của tập kiểm thử, nhánh hành
 vi sinh 0,71 cảnh báo nhầm mỗi giờ, đều ở chiều ra.
 
