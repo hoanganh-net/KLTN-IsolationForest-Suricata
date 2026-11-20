@@ -7,7 +7,7 @@
       (100305 diem cao lan dau, 100306 web, 100307/100308/100309 Behavior-IF, 100311 tai dien, 100312 CRITICAL).
       Base 100302/303/304 KHONG mang anomaly_notify nen fire ngam de DEM ma khong lam ngap Telegram.
   Thang leo muc: 10 (phat hien) -> 12 (diem cao) -> 13 (tai dien) -> 15 (CRITICAL -> Active Response).
-  AR = suricata-drop (luat drop inline Suricata) tren agent 003. Rule BAO 100305, 100306, 100311 co ignore=300s;
+  AR = suricata-drop (luat drop inline Suricata) tren agent 003. Rule BAO 100305, 100306 co ignore=5s (giãn thẻ web khi demo, các lượt cách nhau >5s), 100311 co ignore=300s;
   100307/100308/100309 (Behavior-IF) khong ignore vi anomaly.py da gom theo su co truoc khi ghi.
   100312 KHONG ignore: nguon con tan cong sau khi lan chan truoc het han thi AR chan lai, moi lan kich hoat
   kem mot the CRITICAL (chot 12/11). Khong dung rule con co ignore de gioi han the: tren Wazuh 4.12 canh bao
@@ -67,7 +67,7 @@
        vi tri tren cay rule, va Wazuh 4.12 ghi canh bao vao danh sach dem cua 100311/100312 mot lan cho moi
        vi tri, nen voi nhieu rule cha moi canh bao diem cao bi dem nhieu lan (phat hien qua luot chay ngay 12/11).
        Muc 12 cao hon 10 nen Wazuh xet 100304 truoc 100302, 100303. 100304 chi nhan hai module web: canh bao diem cao
-       cua Behavior-IF phai di 100307 -> 100308, neu roi vao 100305 se bi ignore=300 cua 100305 nuot. -->
+       cua Behavior-IF phai di 100307 -> 100308, neu roi vao 100305 se bi ignore cua 100305 nuot. -->
   <rule id="100304" level="12">
     <if_sid>100300</if_sid>
     <field name="module" type="pcre2">^anomaly_(web|web_body)$</field>
@@ -76,15 +76,15 @@
     <group>anomaly_event,anomaly_high,</group>
   </rule>
 
-  <!-- BAO diem cao lan dau, throttle 300s, KHONG dem -->
-  <rule id="100305" level="12" ignore="300">
+  <!-- BAO diem cao lan dau, throttle 5s (demo), KHONG dem -->
+  <rule id="100305" level="12" ignore="5">
     <if_sid>100304</if_sid>
     <description>Anomaly - Phat hien diem cao tu $(srcip) (bao lan dau): $(why)</description>
     <group>anomaly_notify,</group>
   </rule>
 
   <!-- 100306 | BAO bat thuong WEB ra Telegram, doc lap voi nhanh hanh vi. -->
-  <rule id="100306" level="10" ignore="300">
+  <rule id="100306" level="10" ignore="5">
     <if_sid>100302,100303</if_sid>
     <description>Anomaly - Bat thuong WEB tu $(srcip) tren $(host): $(why)</description>
     <group>anomaly_notify,</group>

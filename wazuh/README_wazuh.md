@@ -26,8 +26,8 @@ anomaly.py (host IDS)                 Wazuh agent (IDS)        Wazuh manager
 | 100309 | 100307 + `behavior` = `brute` hoặc `flood` (đặt trước 100308 trong tệp) | 12 | Behavior-IF gán nhãn dò đăng nhập hoặc làm ngập: gửi Telegram và **kích hoạt Active Response** chặn nguồn ngay |
 | 100308 | 100307 + `severity` = `high` | 12 | Cảnh báo Behavior-IF điểm cao, gửi Telegram |
 | 100304 | 100300 + `module` = `anomaly_(web\|web_body)` + `severity` = `high` | 12 | Một sự kiện điểm cao của nhánh web |
-| 100305 | 100304, báo lần đầu (ignore 300 giây) | 12 | Gửi Telegram |
-| 100306 | 100302/100303, báo cảnh báo web (ignore 300 giây) | 10 | Gửi Telegram |
+| 100305 | 100304, báo lần đầu (ignore 5 giây) | 12 | Gửi Telegram |
+| 100306 | 100302/100303, báo cảnh báo web (ignore 5 giây) | 10 | Gửi Telegram |
 | 100311 | ≥5 cảnh báo cùng `srcip` trong 5 phút | 13 | Tái diễn (tần suất) |
 | 100312 | ≥10 cảnh báo cùng `srcip` trong 10 phút, không có ignore | **15** | **Kích hoạt Active Response** và gửi thẻ CRITICAL lên Telegram (mỗi lần kích hoạt một thẻ) |
 | 100320 | Con của rule Suricata 86601, `alert.signature` = `KLTN POST body capture` | 0 | Ẩn cảnh báo của rule thu thân POST |
@@ -44,7 +44,7 @@ khớp mọi lần kích hoạt 100311 và 100312: lượt trước khi sửa kh
 Behavior-IF (module `anomaly_if_rt`) đi nhánh riêng 100307 → 100309 hoặc 100308 và báo thẳng ra Telegram, không có
 `ignore`. anomaly.py đã gom cảnh báo hành vi theo sự cố của cặp máy trước khi ghi: chỉ ghi khi mở sự cố mới, khi mức độ
 tăng từ medium lên high hoặc khi đặc trưng lệch nhất đổi sang đặc trưng chưa gặp trong sự cố. Còn `ignore` của Wazuh tính
-cho cả rule chứ không theo nguồn, nên nếu đặt sẽ nuốt cảnh báo của nguồn khác trong cùng 300 giây. Cũng vì lý do đó
+cho cả rule chứ không theo nguồn, nên nếu đặt sẽ nuốt cảnh báo của nguồn khác trong cùng khoảng ignore. Cũng vì lý do đó
 100304 chỉ nhận hai module web: cảnh báo Behavior-IF điểm cao mà rơi vào 100304 → 100305 sẽ bị `ignore` của 100305 chặn.
 100308 và 100309 chỉ có một rule cha (100307) nên mỗi cảnh báo được đếm một lần vào 100311/100312. 100309 đặt trước 100308
 trong tệp vì Wazuh xét rule con theo thứ tự trong tệp: cảnh báo mang nhãn `brute` hoặc `flood` vào 100309 ở bất kỳ mức độ nào,
