@@ -7,9 +7,9 @@ Thư mục này là bộ dữ liệu dùng để chạy hai notebook `1_KLTN_Beh
 | Tệp | Dùng cho | Kích thước |
 |---|---|---|
 | `flow_normal.csv` | Behavior-IF, huấn luyện | 583 MB |
-| `flow_test.csv` | Behavior-IF, kiểm thử (lab và CTU-13) | 482 MB |
+| `flow_test.csv` | Behavior-IF, kiểm thử; notebook chỉ dùng các dòng lab, các dòng CTU-13 trong tệp không còn dùng | 482 MB |
 | `flow_runs.csv` | Nhãn lượt tấn công của tập kiểm thử Behavior-IF | 0,1 MB |
-| `flow_normal_tre.csv.gz`, `flow_test_tre.csv.gz` | Behavior-IF, Tầng 1: thời điểm engine nhận từng luồng, cùng thứ tự dòng với hai tệp luồng | 64 MB, 45 MB |
+| `flow_normal_tre.csv.gz`, `flow_test_tre.csv.gz` | Behavior-IF: thời điểm engine nhận từng luồng, cùng thứ tự dòng với hai tệp luồng | 64 MB, 45 MB |
 | `web_get_train.csv`, `web_get_test.csv` | Web-App IF, GET | 12 MB, 8,5 MB |
 | `web_post_train.csv`, `web_post_test.csv` | Web-App IF, POST | 22 MB, 22 MB |
 | `DATASET_CARD.md` | Mô tả nguồn gốc, cách dựng, nhãn, cách chia tập và giới hạn | |
