@@ -7,8 +7,8 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Đề tài xây dựng nhánh phát hiện bất thường chạy song song với nhánh chữ ký của Suricata, gồm hai mô-đun Isolation Forest học không giám sát trên nhật ký `eve.json`:
 
-- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian. Mô-đun theo dõi hành vi lộ ra trong thời gian ngắn và có hai tham chiếu bình thường theo bên khởi tạo kết nối, cùng dùng cửa sổ 30 giây, bước trượt 15 giây. Chiều ra (máy nạn nhân khởi tạo) dùng 7 đặc trưng cho dò quét, dò đăng nhập sang vùng quản trị, exfiltration và tải công cụ. Chiều vào (bên ngoài khởi tạo) dùng 5 đặc trưng cho dò quét, dò đăng nhập, làm ngập. Cửa sổ được chấm lại khi còn mở nên cảnh báo đến sớm, và hai hành vi nối tiếp nhau của cùng một cặp máy rơi vào hai cửa sổ khác nhau nên có cảnh báo riêng. Hành vi phải theo dõi bằng cửa sổ dài, như kết nối lặp lại theo chu kỳ tới máy chủ C2, nằm ngoài phạm vi. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của chiều đó chỉ ghi kèm cảnh báo để diễn giải.
 - **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Rừng chấm trên 11 đặc trưng từ vựng, riêng Web-Query IF thêm `n_slash` (số dấu gạch chéo); ký tự `<`, `>` và chuỗi percent-encoding còn sót sau khi giải mã được tách sang bước kiểm tra miền của giá trị ngắn.
+- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian. Mô-đun theo dõi hành vi lộ ra trong thời gian ngắn và có hai tham chiếu bình thường theo bên khởi tạo kết nối, cùng dùng cửa sổ 30 giây, bước trượt 15 giây. Chiều ra (máy nạn nhân khởi tạo) dùng 7 đặc trưng cho dò quét, dò đăng nhập sang vùng quản trị, exfiltration và tải công cụ. Chiều vào (bên ngoài khởi tạo) dùng 5 đặc trưng cho dò quét, dò đăng nhập, làm ngập. Cửa sổ được chấm lại khi còn mở nên cảnh báo đến sớm, và hai hành vi nối tiếp nhau của cùng một cặp máy rơi vào hai cửa sổ khác nhau nên có cảnh báo riêng. Hành vi phải theo dõi bằng cửa sổ dài, như kết nối lặp lại theo chu kỳ tới máy chủ C2, nằm ngoài phạm vi. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của chiều đó chỉ ghi kèm cảnh báo để diễn giải.
 
 Cảnh báo được đẩy vào Wazuh, phân mức theo bộ rule riêng, gửi Telegram và chặn nguồn qua Active Response tại Suricata_IPS.
 
@@ -50,10 +50,10 @@ Score(x, F)
 
 | Mô hình | Mẫu đưa vào rừng | Số đặc trưng | Mẫu con |
 |---|---|---|---|
-| Behavior-IF, chiều ra | Cặp máy trong cửa sổ 30 giây | 7 | 65.536 |
-| Behavior-IF, chiều vào | Cặp máy trong cửa sổ 30 giây | 5 | 1.024 |
 | Web-Query IF | Giá trị tham số truy vấn, trường ngắn của thân POST | 12 | 1.024 |
 | Web-Body IF | Văn bản tự do của thân POST | 11 | 1.024 |
+| Behavior-IF, chiều ra | Cặp máy trong cửa sổ 30 giây | 7 | 65.536 |
+| Behavior-IF, chiều vào | Cặp máy trong cửa sổ 30 giây | 5 | 1.024 |
 
 Cả bốn rừng dùng 300 cây và seed cố định. Mẫu con là 1.024, riêng rừng chiều ra của Behavior-IF dùng 65.536 vì ngưỡng của nó nằm ở phân vị 99,95% của điểm huấn luyện: mẫu con 1.024 trung bình chỉ chứa 0,5 mẫu nằm ngoài phân vị này, còn mẫu con 65.536 chứa khoảng 33 mẫu. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (chiều ra của Behavior-IF có 1.291.533 cửa sổ huấn luyện), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
 
@@ -61,14 +61,14 @@ Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của 
 
 ### Bản tự cài và bản scikit-learn
 
-`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn. Số liệu của Behavior-IF trong README này tính trên bản scikit-learn, còn số liệu của hai mô hình web tính trên bản tự cài. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
+`isolationforest.py` cài lại thuật toán bằng NumPy theo bài báo gốc. `anomaly.py` dùng `sklearn.ensemble.IsolationForest` để chấm trực tuyến nhanh hơn. Số liệu của hai mô hình web trong README này tính trên bản tự cài, còn số liệu của Behavior-IF tính trên bản scikit-learn. Hai bản dùng bộ sinh số ngẫu nhiên khác nhau nên dù cùng seed, cây vẫn không trùng nhau; đề tài vì vậy so thứ hạng điểm và quyết định tại ngưỡng thay vì đòi điểm trùng khớp.
 
 | Mô hình | Dữ liệu so | Spearman giữa hai bản |
 |---|---|---|
-| Behavior-IF, chiều ra | 5.000 cửa sổ kiểm định | 0,9961 |
-| Behavior-IF, chiều vào | 5.000 cửa sổ kiểm định | 0,8731 |
 | Web-Query IF | 30.668 đơn vị kiểm định | 0,9770 |
 | Web-Body IF | 15.053 giá trị kiểm định | 0,9896 |
+| Behavior-IF, chiều ra | 5.000 cửa sổ kiểm định | 0,9961 |
+| Behavior-IF, chiều vào | 5.000 cửa sổ kiểm định | 0,8731 |
 
 Hai bản cho cùng quyết định trên cả 3.616 cửa sổ tấn công chiều ra, 98,93% trong 375 cửa sổ tấn công chiều vào, 99,75% request GET và 99,37% request POST (Bảng 3.9 của báo cáo). `anomaly.py` cũng được kiểm tra bằng cách đưa dữ liệu kiểm thử qua đúng đường xử lý của nó. Với Web-App IF, quyết định trùng với bản scikit-learn của notebook trên cả 39.217 request GET và 28.207 request POST. Với Behavior-IF, hai lát 28 giờ của tập kiểm thử được phát lại qua engine: engine phát 113 cảnh báo ở lát chiều ra và 16 ở lát chiều vào, trùng với cách đếm của notebook.
 
@@ -103,13 +103,13 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Cơ chế chấm
 
-![Cửa sổ trượt 30 giây, bước 15 giây](docs/cua_so_truot.png)
-
-*Behavior-IF, cả hai chiều: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng. Cửa sổ chốt 75 giây sau thời điểm cuối.*
-
 ![Trường đọc và mô hình chấm của Web-App IF](docs/web_app_if_co_che.png)
 
 *Web-App IF: trường văn bản tự do xác định theo tên trường (comment, content, message, title…); bước kiểm tra miền gán điểm 1 cho giá trị ngắn có `<`, `>` hoặc `%xx` còn sót.*
+
+![Cửa sổ trượt 30 giây, bước 15 giây](docs/cua_so_truot.png)
+
+*Behavior-IF, cả hai chiều: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng. Cửa sổ chốt 75 giây sau thời điểm cuối.*
 
 ## Kết quả trên tập kiểm thử
 
