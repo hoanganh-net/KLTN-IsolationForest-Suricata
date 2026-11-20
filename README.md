@@ -24,7 +24,7 @@ Isolation Forest (Liu, Ting và Zhou, 2008) dựa trên hai đặc điểm của
 - **Độ dài đường đi (path length)**: h(x) là số cạnh từ gốc tới lá chứa x. Lá còn n > 1 điểm chưa tách thì h(x) được cộng thêm c(n) = 2H(n − 1) − 2(n − 1)/n, với H(i) ≈ ln(i) + 0,5772, là path length trung bình của một lần tìm kiếm không thành công trong cây nhị phân tìm kiếm có n điểm.
 - **Điểm bất thường**: s(x, ψ) = 2^(−E(h(x))/c(ψ)), với E(h(x)) là trung bình h(x) trên t cây. Điểm gần 1 cho thấy x rất bất thường, điểm nhỏ hơn rõ so với 0,5 cho thấy x bình thường, còn nếu mọi điểm đều xấp xỉ 0,5 thì dữ liệu không có bất thường rõ.
 
-Pseudocode của bản tự cài (Hình 3.9 của báo cáo):
+Pseudocode của bản tự cài (Hình 3.10 của báo cáo):
 
 ```
 Fit(X, t, ψ)                      # tập huấn luyện X, số cây t, cỡ mẫu con ψ
@@ -130,9 +130,13 @@ Behavior-IF phát hiện 429 trong 429 lượt và phiên tấn công của tậ
 
 *Hình 3.3. Recall của Behavior-IF theo hành vi trên tập kiểm thử*
 
-![Cảnh báo nhầm mỗi giờ và recall của chiều ra theo ngưỡng](docs/behavior_if_nguong.png)
+![Số cảnh báo nhầm mỗi giờ của chiều ra theo ngưỡng](docs/behavior_if_nguong.png)
 
-*Hình 3.4. Cảnh báo nhầm mỗi giờ và recall của chiều ra theo ngưỡng*
+*Hình 3.4. Số cảnh báo nhầm mỗi giờ của chiều ra theo ngưỡng trên tập kiểm định*
+
+![Recall theo cửa sổ tấn công của chiều ra theo ngưỡng](docs/behavior_if_recall_nguong.png)
+
+*Hình 3.5. Recall theo cửa sổ tấn công của chiều ra theo ngưỡng trên tập kiểm thử*
 
 ### Web-App IF
 
@@ -146,19 +150,19 @@ Behavior-IF phát hiện 429 trong 429 lượt và phiên tấn công của tậ
 
 ![Recall của Web-App IF với SQL Injection và XSS](docs/web_app_if_recall_sqli_xss.png)
 
-*Hình 3.5. Recall của Web-App IF với SQL Injection và XSS trên tập kiểm thử*
+*Hình 3.6. Recall của Web-App IF với SQL Injection và XSS trên tập kiểm thử*
 
 ![Phân bố điểm của Web-Query IF và Web-Body IF với SQL Injection và XSS](docs/web_app_if_phan_bo_sqli_xss.png)
 
-*Hình 3.6. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với SQL Injection và XSS trên tập kiểm thử*
+*Hình 3.7. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với SQL Injection và XSS trên tập kiểm thử*
 
 ![Recall của Web-App IF với command injection và path traversal](docs/web_app_if_recall_cmdi_pt.png)
 
-*Hình 3.7. Recall của Web-App IF với command injection và path traversal trên tập kiểm thử*
+*Hình 3.8. Recall của Web-App IF với command injection và path traversal trên tập kiểm thử*
 
 ![Phân bố điểm của Web-Query IF và Web-Body IF với command injection và path traversal](docs/web_app_if_phan_bo_cmdi_pt.png)
 
-*Hình 3.8. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với command injection và path traversal trên tập kiểm thử*
+*Hình 3.9. Phân bố điểm của Web-Query IF (trái) và Web-Body IF (phải) với command injection và path traversal trên tập kiểm thử*
 
 Mỗi nửa của hình phân bố điểm so giá trị hợp lệ với giá trị mang tấn công của nhóm, kèm ngưỡng của mô hình; cột ở điểm 1,0 là các giá trị bị bước kiểm tra miền gán điểm 1. SQL Injection và XSS nằm xa ngưỡng ở cả hai mô hình; command injection và path traversal sát ngưỡng hơn, nhất là ở văn bản tự do, và là điểm yếu của mô-đun.
 
@@ -166,15 +170,15 @@ Mỗi nửa của hình phân bố điểm so giá trị hợp lệ với giá t
 
 Wazuh ghi nhận mỗi cảnh báo ở mức 10 và nâng lên mức 12 khi điểm cao. Cảnh báo Behavior-IF đi nhánh riêng: 100307 ở mức 10, 100308 ở mức 12 khi điểm cao, 100309 ở mức 12 khi cảnh báo mang nhãn brute hoặc flood. Một nguồn có từ 5 cảnh báo trong 300 giây thì lên mức 13 (100311), từ 10 cảnh báo trong 600 giây thì lên mức 15 (100312). Active Response chặn IP nguồn tại Suricata_IPS trong 15 giây theo hai đường: rule 100312 với nguồn tái diễn và rule 100309 với nguồn mang nhãn brute hoặc flood; dò quét chỉ được cảnh báo. Bộ rule và cách cài đặt nằm trong [`wazuh/README_wazuh.md`](wazuh/README_wazuh.md).
 
-Thẻ Telegram chuyển các đặc trưng lệch nhiều nhất thành lời diễn giải tiếng Việt, kèm kỹ thuật MITRE ATT&CK và biện pháp phòng ngừa. Hình 3.11 là thẻ mức 15 nhận được khi chạy SQL Injection vào DVWA, dòng cuối báo nguồn đã bị chặn tạm thời.
+Thẻ Telegram chuyển các đặc trưng lệch nhiều nhất thành lời diễn giải tiếng Việt, kèm kỹ thuật MITRE ATT&CK và biện pháp phòng ngừa. Hình 3.12 là thẻ mức 15 nhận được khi chạy SQL Injection vào DVWA, dòng cuối báo nguồn đã bị chặn tạm thời.
 
 ![Mẫu thẻ cảnh báo bất thường gửi qua Telegram](docs/the_canh_bao_telegram.png)
 
-*Hình 3.11. Mẫu thẻ cảnh báo bất thường gửi qua Telegram*
+*Hình 3.12. Mẫu thẻ cảnh báo bất thường gửi qua Telegram*
 
 ![Trình tự cảnh báo, nâng mức và chặn nguồn](docs/luong_canh_bao.png)
 
-*Hình 3.12. Trình tự cảnh báo, nâng mức và chặn nguồn của nhánh bất thường*
+*Hình 3.13. Trình tự cảnh báo, nâng mức và chặn nguồn của nhánh bất thường*
 
 ## Thực nghiệm trên hệ thống triển khai
 
