@@ -61,20 +61,20 @@ hưởng rule.
 
 ## Cảnh báo hành vi: chấm khi cửa sổ còn mở và gom theo sự cố
 
-Ở chế độ `--live`, Behavior-IF gộp luồng của từng cặp máy theo cửa sổ của mỗi chiều: 30 phút, bước 15 phút ở chiều ra và
-2 phút, bước 1 phút ở chiều vào. Sau mỗi lượt đọc `eve.json` (mặc định 10 giây), engine chấm lại các cửa sổ vừa có thêm luồng
+Ở chế độ `--live`, Behavior-IF gộp luồng của từng cặp máy theo cửa sổ 30 giây, bước 15 giây, dùng chung cho hai chiều.
+Sau mỗi lượt đọc `eve.json` (mặc định 10 giây), engine chấm lại các cửa sổ vừa có thêm luồng
 và ghi cảnh báo ngay ở lần đầu điểm vượt ngưỡng, không chờ cửa sổ đóng. Mỗi lần chấm chỉ dùng những luồng đã có bản ghi flow,
 đúng như khi huấn luyện và chọn ngưỡng. Một cửa sổ được chấm lần cuối khi đồng hồ của engine qua thời điểm cuối cửa sổ 75 giây
 (`delay_s` trong joblib), khoảng chờ cho các bản ghi flow ghi trễ. Đồng hồ của engine là thời điểm kết thúc lớn nhất trong
 các bản ghi flow đã đọc, nên phát lại nhật ký cũ cho cùng kết quả như khi chạy trực tiếp.
 
 Trên tập kiểm thử, tính theo giờ thật từ luồng đầu tiên của lượt, trung vị độ trễ là 73 giây với dò quét vùng quản trị,
-79 giây với dò đăng nhập SSH và 112 đến 218 giây với exfiltration, tải công cụ, kênh C2 (mục 4 của notebook 1), chưa cộng
+72 giây với dò đăng nhập SSH và 112 đến 114 giây với tải công cụ, exfiltration (mục 4 của notebook 1), chưa cộng
 chu kỳ đọc của engine. Phần lớn độ trễ là thời gian chờ Suricata ghi bản ghi flow (xem mục Rút ngắn độ trễ).
 
 Khi khởi động, engine đọc lại phần cuối của `eve.json` (64 MB, đổi bằng `ANOMALY_WARM_MB`, đặt 0 để tắt) và phát lại tối đa
-hai giờ gần nhất mà không ghi cảnh báo, để dựng lại các cửa sổ và sự cố đang mở. Thiếu bước này, sau mỗi lần khởi động lại,
-chiều ra phải chờ tới mốc 15 phút kế tiếp mới có cửa sổ trọn vẹn.
+hai giờ gần nhất mà không ghi cảnh báo, để dựng lại các cửa sổ và sự cố đang mở. Thiếu bước này, sự cố đang mở trước lúc khởi động
+bị quên và được báo lại như sự cố mới.
 
 Các lần vượt ngưỡng được gom theo sự cố của cặp (`srcip`, `dstip`) trước khi ghi ra `anomaly_alerts.jsonl`, để một hành vi
 kéo dài không sinh cảnh báo ở mọi cửa sổ. Một lần vượt ngưỡng chỉ sinh cảnh báo trong các trường hợp sau (trường
@@ -82,13 +82,12 @@ kéo dài không sinh cảnh báo ở mọi cửa sổ. Một lần vượt ngư
 
 | `episode_state` | Khi nào sinh cảnh báo |
 |---|---|
-| `new` | Lần vượt ngưỡng đầu tiên của cặp, hoặc lần đầu sau khi cặp đã yên lặng quá thời gian gom: 30 phút ở chiều ra, 15 phút ở chiều vào. `ANOMALY_RT_QUIET_MIN` đổi thời gian này cho cả hai chiều, nhưng không nhỏ hơn bước trượt của chiều đó |
+| `new` | Lần vượt ngưỡng đầu tiên của cặp, hoặc lần đầu sau khi cặp đã yên lặng quá thời gian gom 15 phút. `ANOMALY_RT_QUIET_MIN` đổi thời gian này cho cả hai chiều, nhưng không nhỏ hơn bước trượt |
 | `escalated` | Trong sự cố, mức độ tăng từ `medium` lên `high` |
 | `new_behavior` | Trong sự cố, đặc trưng lệch nhiều nhất đổi sang một đặc trưng chưa gặp trong sự cố |
 
-Các lần vượt ngưỡng còn lại chỉ được cộng dồn vào sự cố, không nhắc lại định kỳ. Ở chiều ra, cửa sổ đã vượt ngưỡng vẫn được
-chấm tiếp cho tới khi chốt, để hành vi đổi dạng trong cùng cửa sổ 30 phút vẫn được báo qua `escalated` hoặc `new_behavior`.
-Ở chiều vào, mỗi cửa sổ chỉ báo một lần. Cảnh báo hành vi có thêm `window_start` (thời điểm bắt đầu cửa sổ), `episode`
+Các lần vượt ngưỡng còn lại chỉ được cộng dồn vào sự cố, không nhắc lại định kỳ. Mỗi cửa sổ chỉ báo một lần: cửa sổ đã vượt
+ngưỡng không được chấm tiếp. Cảnh báo hành vi có thêm `window_start` (thời điểm bắt đầu cửa sổ), `episode`
 (mã sự cố), `episode_start` và `episode_windows` (số cửa sổ bất thường của sự cố tính tới lúc đó); thẻ Telegram hiện các
 trường này trên một dòng riêng.
 
@@ -110,7 +109,7 @@ sudo systemctl restart wazuh-agent
 Khi chạy nền bằng `anomaly-ids.service`, các tệp trong `suricata/anomaly/` (`anomaly.py`, `common.py`, `behavior.py`, `web.py`,
 `whitelist.txt`) và hai joblib đặt cùng trong `/opt/ml`; sau mỗi lần chép tệp mới vào đó thì chạy
 `sudo systemctl restart anomaly-ids`. Nhật ký khởi động (`journalctl -u anomaly-ids`) phải có hai dòng
-`[BEHAVIOR-IF live] chiều ra: cửa sổ 30', ...` và `[BEHAVIOR-IF live] chiều vào: cửa sổ 2', ...` kèm ngưỡng của từng chiều, rồi dòng
+`[BEHAVIOR-IF live] chiều ra: cửa sổ 30 giây, ...` và `[BEHAVIOR-IF live] chiều vào: cửa sổ 30 giây, ...` kèm ngưỡng của từng chiều, rồi dòng
 `[BEHAVIOR-IF live] khởi động ấm: ...` khi nhật ký đã có luồng; dòng `[BEHAVIOR-IF live] tắt` nghĩa là joblib chưa có khóa `rt`. Muốn ghi số đo hiệu năng (CPU%, RSS, thời
 gian chấm) thì thêm `ANOMALY_PERF=1` vào môi trường của dịch vụ: anomaly.py ghi `anomaly_perf.jsonl` cạnh tệp cảnh báo, mặc
 định 30 giây một mẫu. Chu kỳ đọc và chấm lại của Behavior-IF lấy theo joblib (10 giây); đặt `ANOMALY_RT_INTERVAL_S=5` để chấm lại
@@ -220,33 +219,31 @@ lượt tấn công đơn cặp của tập kiểm thử chỉ sinh từ một �
 (5 trong 5 phút) và 100312 (10 trong 10 phút). Active Response theo tần suất vì vậy chỉ chặn nguồn tái diễn dai dẳng: chuỗi
 request web bị gắn cờ (nhánh web không gom), hoặc một nguồn gây bất thường trên nhiều máy đích trong thời gian ngắn (mỗi cặp
 là một sự cố riêng). Chặn tự động theo một cảnh báo hành vi đơn lẻ không mang nhãn dễ cô lập nhầm máy hợp lệ: trên tập
-kiểm thử, chiều ra vẫn có 0,27 cảnh báo nhầm mỗi giờ.
+kiểm thử, chiều ra vẫn có 1,99 cảnh báo nhầm mỗi giờ.
 
 ## Số cảnh báo của một lượt tấn công
 
 Bảng dưới đếm số cảnh báo Behavior-IF của từng lượt và phiên trên tập kiểm thử, theo chính sách gom của anomaly.py
 (notebook 1). Mỗi cảnh báo là một thẻ Telegram: mức 10 qua rule 100307, mức 12 qua 100308 khi điểm cao hoặc 100309 khi mang
-nhãn `brute`, `flood`. Cảnh báo thứ hai, thứ ba của một lượt là cảnh báo `escalated` hoặc `new_behavior`.
+nhãn `brute`, `flood`. Cảnh báo thứ hai trở đi của một lượt là cảnh báo `escalated`, `new_behavior`, hoặc cảnh báo `new` của một cặp máy khác trong cùng lượt.
 
-| Hành vi | Số lượt | 1 cảnh báo | 2 cảnh báo | 3 cảnh báo |
-|---|---|---|---|---|
-| scan_mgmt: dò cổng 1-1024 tới một máy | 109 | 109 | 0 | 0 |
-| auth_mgmt: 40 lần đăng nhập SSH lỗi | 118 | 72 | 46 | 0 |
-| exfil: exfiltration | 85 | 71 | 14 | 0 |
-| download: tải công cụ | 101 | 1 | 100 | 0 |
-| beacon_even: kênh C2 nhịp đều | 59 | 0 | 3 | 56 |
-| beacon_irregular: kênh C2 nhịp ngẫu nhiên | 44 | 0 | 43 | 1 |
-| scan_in: dò quét từ bên ngoài | 2 | 2 | 0 | 0 |
-| flood_in: làm ngập từ bên ngoài | 3 | 0 | 3 | 0 |
-| web_in: gửi payload web từ bên ngoài | 11 | 11 | 0 | 0 |
+| Hành vi | Số lượt | Cảnh báo mỗi lượt: trung vị (ít nhất - nhiều nhất) |
+|---|---|---|
+| scan_mgmt: dò cổng 1-1024 tới một máy | 109 | 1 (1-1) |
+| auth_mgmt: 40 lần đăng nhập SSH lỗi | 118 | 1 (1-2) |
+| exfil: exfiltration | 85 | 1 (1-1) |
+| download: tải công cụ | 101 | 1 (1-2) |
+| scan_in: dò quét từ bên ngoài | 2 | 2 (1-2) |
+| flood_in: làm ngập từ bên ngoài | 3 | 3 (2-4) |
+| web_in: gửi payload web từ bên ngoài | 11 | 1 (1-2) |
 
 Nhánh signature gửi thẻ riêng qua bot `custom-telegram`. Quét nhiều máy đích cùng lúc nhân số thẻ theo số cặp; từ 5 cảnh báo
 cùng nguồn trong 5 phút có thêm thẻ 100311, từ 10 cảnh báo trong 10 phút thì 100312 chặn nguồn. Trạng thái sự cố nằm trong bộ
-nhớ của anomaly.py: lượt lặp lại trên cùng cặp trong vòng 30 phút (chiều ra) hoặc 15 phút (chiều vào) kể từ cửa sổ bất thường
+nhớ của anomaly.py: lượt lặp lại trên cùng cặp trong vòng 15 phút kể từ cửa sổ bất thường
 cuối được gộp vào sự cố cũ và không sinh thẻ mới, trừ khi mức độ tăng hoặc đặc trưng lệch nhất đổi. Khởi động lại dịch vụ
 không xóa trạng thái này, vì engine dựng lại sự cố từ hai giờ cuối của nhật ký. Khi tập dượt trước buổi trình diễn, dùng cặp
 máy khác, chờ hết thời gian gom hoặc đặt `ANOMALY_RT_QUIET_MIN` nhỏ hơn. Trên phần bình thường của tập kiểm thử, nhánh hành
-vi sinh 0,27 cảnh báo nhầm mỗi giờ, đều ở chiều ra.
+vi sinh 1,99 cảnh báo nhầm mỗi giờ, đều ở chiều ra.
 
 ## Rút ngắn độ trễ
 
@@ -258,8 +255,9 @@ cùng `ANOMALY_RT_INTERVAL_S=5`. `tcp.new` không hạ xuống 5 giây vì SYN �
 bắt tay xong kéo dài từ 15 giây có khoảng nghỉ vượt 5 giây và bị tách thành nhiều bản ghi, chiếm 28,7% số luồng chưa bắt tay
 xong của lưu lượng nền, làm lệch đặc trưng so với lúc huấn luyện; với 10 giây tỷ lệ này còn 0,03%.
 
-Hai phép đo dưới đây làm với tham chiếu chiều vào, phần không đổi ở mô hình ngày 19/11/2026. Tham chiếu chiều ra hiện tại
-(cửa sổ 30 phút) chưa được đo lại với cấu hình timeout này.
+Hai phép đo dưới đây làm với mô hình trước ngày 20/11/2026 (chiều vào cửa sổ 2 phút) và chưa được đo lại với mô hình cửa sổ
+30 giây. Khi chạy thật ngày 20/11/2026 với cấu hình timeout này, bốn lượt đã chạy (dò quét từ ngoài, dò đăng nhập SSH, làm ngập,
+dò quét vùng quản trị) được báo sau 5 đến 25 giây kể từ luồng đầu tiên của cửa sổ.
 
 Mô phỏng trên bộ dữ liệu 4.1, giữ nguyên mô hình và ngưỡng, dời thời điểm ghi của các luồng thuộc cụm 60 giây và giữ phần trễ
 thêm của flow manager như đã đo, cho trung vị độ trễ theo giờ thật (chưa tính chặng Wazuh và Telegram): dò từ vùng tấn công
@@ -282,15 +280,14 @@ tinh chỉnh khi vận hành chứ không thuộc mô hình: notebook và mọi 
 
 Danh sách hiện có năm địa chỉ, lập khi chiều ra còn chấm bằng cửa sổ 2 phút. Hai địa chỉ đầu thuộc `edge.microsoft.com`
 (DNS `ax-0002.ax-msedge.net`), dịch vụ của trình duyệt Edge trên hai máy Windows sinh lưu lượng nền. Edge gọi dịch vụ này qua
-cả cổng 443 và 80 và nhiều kết nối không hoàn tất bắt tay, nên một cửa sổ 2 phút trông giống một lượt dò nhỏ. Ba địa chỉ còn
+cả cổng 443 và 80 và nhiều kết nối không hoàn tất bắt tay, nên một cửa sổ trông giống một lượt dò nhỏ. Ba địa chỉ còn
 lại cũng là đích của hai máy Windows sinh lưu lượng nền, tên lấy theo SNI và DNS trong eve.json của lab (18-20/10/2026):
 `50.19.149.4` và `23.21.189.113` là `autodesk.com` (máy 192.168.10.201), `137.59.44.88` là
 `sg1.mobifone.vn.prod.hosts.ooklaserver.net`, máy chủ Speedtest của Ookla đặt tại MobiFone (máy 192.168.10.202).
 
-Với tham chiếu chiều ra hiện tại (cửa sổ 30 phút, 9 đặc trưng), danh sách gần như không còn tác dụng trên bộ dữ liệu: trong
-146 cảnh báo nhầm của tập kiểm định chỉ có 3 cảnh báo tới các địa chỉ này, trong 134 cảnh báo nhầm của tập kiểm thử không có
-cảnh báo nào. Cảnh báo nhầm hiện tản ra nhiều đích, đích nhiều nhất chỉ có 11 cảnh báo, và phần lớn xuất phát từ hai máy
-Windows sinh lưu lượng nền: 120 trong 146 cảnh báo ở tập kiểm định, 113 trong 134 ở tập kiểm thử.
+Với mô hình hiện tại (cửa sổ 30 giây, ngưỡng chiều ra 0,6388), các địa chỉ này vẫn sinh cảnh báo nếu không loại trừ: khi phát
+lại một lát 28 giờ của tập kiểm thử qua engine, 8 trong 121 cảnh báo chiều ra là tới hai địa chỉ của Edge. Danh sách vì vậy
+được giữ nguyên.
 
 Mỗi mục là một vùng mù của nhánh hành vi, nên chỉ thêm khi đã tra rõ tên TLS/DNS của đích và ghi lý do. Địa chỉ của dịch vụ đám
 mây có thể đổi: khi thẻ cảnh báo của một đích quen quay lại, tra lại tên rồi cập nhật tệp và khởi động lại dịch vụ.

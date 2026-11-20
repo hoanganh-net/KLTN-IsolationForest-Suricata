@@ -59,30 +59,39 @@ INCOMPLETE = {"syn_sent", "syn_recv"}
 FEATS = ["log_n_conn", "sqrt_mb_out", "sqrt_mb_in", "frac_out", "log_throughput",
          "log_peak_cpm", "periodicity", "uniformity", "log_n_ports", "frac_incomplete", "svc_rarity"]
 
-# Mỗi chiều một tham chiếu. Cửa sổ được chấm lại mỗi RT_STEP_S giây trên các luồng đã tới và báo ngay khi vượt ngưỡng; cửa sổ
-# chốt sau cuối cửa sổ RT_DELAY_S giây (luồng chưa thiết lập hoặc đã đóng tới engine trong vòng 70 giây).
-# Chiều vào: cửa sổ 2 phút, vì tấn công từ ngoài vào dồn dập và cần nhãn hành vi theo từng đợt để chọn phản ứng.
-# Chiều ra: cửa sổ 30 phút để thấy cả hành vi nhịp thưa (beacon) và luồng dài; cửa sổ đã vượt ngưỡng vẫn được chấm tiếp để
-# báo khi mức độ tăng hoặc hành vi đổi dạng.
-CUA_SO = {"out": (30, 15), "in": (2, 1)}                     # (độ dài cửa sổ, bước trượt), phút
+# Mỗi chiều một tham chiếu, cùng cửa sổ 30 giây trượt 15 giây. Cửa sổ được chấm lại mỗi RT_STEP_S giây trên các luồng đã tới
+# và báo ngay khi vượt ngưỡng; cửa sổ chốt sau cuối cửa sổ RT_DELAY_S giây (luồng chưa thiết lập hoặc đã đóng tới engine trong
+# vòng 70 giây). Behavior-IF chỉ theo dõi hành vi lộ ra trong thời gian ngắn: dò quét, dò đăng nhập, làm ngập và lượt truyền tệp
+# có tổng dung lượng lớn. Cửa sổ ngắn để hai hành vi nối tiếp nhau của cùng một cặp máy rơi vào hai cửa sổ khác nhau và mỗi
+# hành vi nhận nhãn riêng.
+CUA_SO = {"out": (0.5, 0.25), "in": (0.5, 0.25)}             # (độ dài cửa sổ, bước trượt), phút
 RT_DELAY_S, RT_STEP_S = 75, 10
-RT_QUIET_S = {"out": 1800, "in": 900}                        # sự cố đóng sau chừng này giây không còn cửa sổ vượt ngưỡng
-CHAM_TIEP = {"out": True, "in": False}
-# Cột rừng học theo từng chiều. Chiều ra dùng 9 đại lượng có tín hiệu đơn biến với ít nhất một hành vi; frac_out và
-# frac_incomplete không tách được hành vi chiều ra nào nên chỉ ghi kèm để diễn giải. Chiều vào giữ 5 cột của hành vi dồn dập.
-FEATS_RT = {"out": ["log_n_conn", "sqrt_mb_out", "sqrt_mb_in", "log_throughput", "log_peak_cpm", "periodicity", "uniformity",
-                    "log_n_ports", "svc_rarity"],
+RT_QUIET_S = {"out": 900, "in": 900}                         # sự cố đóng sau chừng này giây không còn cửa sổ vượt ngưỡng
+CHAM_TIEP = {"out": False, "in": False}                      # cửa sổ đã vượt ngưỡng không được chấm tiếp
+# Cột rừng học theo từng chiều. Cả hai chiều dùng 5 cột của hành vi dồn dập; chiều ra thêm sqrt_mb_out và sqrt_mb_in để thấy
+# lượt tải lên, tải về có tổng dung lượng lớn bất thường. Các đại lượng còn lại của FEATS chỉ ghi kèm để diễn giải.
+FEATS_RT = {"out": ["log_peak_cpm", "log_throughput", "log_n_ports", "frac_incomplete", "svc_rarity", "sqrt_mb_out",
+                    "sqrt_mb_in"],
             "in": ["log_peak_cpm", "log_throughput", "log_n_ports", "frac_incomplete", "svc_rarity"]}
 IDX_RT = {d: [FEATS.index(f) for f in cot] for d, cot in FEATS_RT.items()}
-# Cỡ mẫu con của mỗi cây: phải đủ lớn để mỗi cây thấy vài chục mẫu nằm ngoài phân vị vận hành (psi x SCORE_Q khoảng 30);
+# Cỡ mẫu con của mỗi cây: phải đủ lớn để mỗi cây thấy vài chục mẫu nằm ngoài phân vị vận hành (psi x SCORE_Q từ khoảng 30 trở lên);
 # mẫu con nhỏ hơn thì mọi giá trị vượt cực trị của mẫu con nhận cùng một điểm, rừng không xếp hạng được phần đuôi.
 PSI = {"out": 65536, "in": 1024}
 
 
 def taus_cua(huong):
-    """Các lần chấm của một cửa sổ, tính bằng giây sau đầu cửa sổ; lần cuối là lúc cửa sổ chốt."""
-    chot = CUA_SO[huong][0] * 60 + RT_DELAY_S
-    return np.array(list(range(RT_STEP_S, chot, RT_STEP_S)) + [chot])
+    """Các lần chấm của cửa sổ một chiều, tính bằng giây sau đầu cửa sổ; lần cuối là lúc cửa sổ chốt. Engine chấm theo nhịp
+    RT_STEP_S giây của đồng hồ chung, nên khi bước trượt không chia hết cho RT_STEP_S, mỗi lưới cửa sổ được chấm ở những
+    lần chấm riêng (xem lan_cham)."""
+    span, hop = int(round(CUA_SO[huong][0] * 60)), int(round(CUA_SO[huong][1] * 60))
+    chot, buoc = span + RT_DELAY_S, math.gcd(RT_STEP_S, hop)
+    return np.array(list(range(buoc, chot, buoc)) + [chot])
+
+
+def lan_cham(taus, off):
+    """Chỉ số trong taus của các lần chấm của lưới cửa sổ lệch off giây: những lần rơi đúng nhịp RT_STEP_S giây của đồng hồ
+    chung và lần chốt."""
+    return np.flatnonzero(((taus + off) % RT_STEP_S == 0) | (taus == taus[-1]))
 
 
 def _cv(x):
@@ -226,10 +235,10 @@ def windows_nhanh(d, rar_counts, rar_total, win_min, hop_min, arrival=None, dela
     bằng phép toán mảng theo nhóm, trùng feature_vector tới sai số làm tròn. arrival, delay_s: chỉ giữ luồng tới không
     muộn hơn cuối cửa sổ cộng delay_s."""
     M = _mang_luong(d, rar_counts, rar_total)
-    span = win_min * 60
+    span = int(round(win_min * 60))
     arr = None if arrival is None else np.asarray(arrival, float)
     parts = []
-    for off in range(0, span, hop_min * 60):
+    for off in range(0, span, int(round(hop_min * 60))):
         bucket = ((M["start"] - off) // span).astype("int64")
         sel = np.arange(len(bucket)) if arr is None else np.flatnonzero(arr <= (bucket + 1) * span + off + delay_s)
         if len(sel):
@@ -282,14 +291,16 @@ def quy_dao(D, rar_counts, rar_total, huong, tach_luot=False):
     base (cửa sổ ở trạng thái chốt), taus, các sự kiện sắp theo (cửa sổ, lần chấm) gồm r (hàng trong base), j (chỉ số
     lần chấm), X (11 đặc trưng); lo (sự kiện đầu của mỗi cửa sổ), ws (đầu cửa sổ), cap (mã cặp máy của sự kiện), gio (số
     giờ dữ liệu), dau (lần chấm đầu tiên mỗi lượt có luồng trong từng cửa sổ)."""
-    span, hop = CUA_SO[huong][0] * 60, CUA_SO[huong][1] * 60
+    span, hop = int(round(CUA_SO[huong][0] * 60)), int(round(CUA_SO[huong][1] * 60))
     taus = taus_cua(huong)
     M = _mang_luong(D, rar_counts, rar_total, tach_luot)
     arr = D["_toi"].to_numpy(float)
     luoi, parts = [], []
     for off in range(0, span, hop):
         bucket = ((M["start"] - off) // span).astype("int64")
-        j_toi = np.searchsorted(taus, arr - (bucket * span + off), side="left")       # lần chấm đầu tiên thấy luồng
+        cham = lan_cham(taus, off)
+        k = np.searchsorted(taus[cham], arr - (bucket * span + off), side="left")
+        j_toi = np.where(k < len(cham), cham[np.minimum(k, len(cham) - 1)], len(taus))  # lần chấm đầu tiên thấy luồng
         gid = pd.factorize(pd.MultiIndex.from_arrays([M["pair"], bucket]))[0]
         luoi.append((off, bucket, j_toi, gid))
         sel = np.flatnonzero(j_toi < len(taus))
@@ -352,7 +363,8 @@ def bao_rt(Q, ix, thr):
     """Trạng thái báo của các lần chấm ix. Cửa sổ vượt ngưỡng ở lần chấm cuối được engine xử lý ở lần đọc kế tiếp."""
     r, tau = Q["r"][ix], Q["taus"][Q["j"][ix]].astype(float)
     chot = float(Q["taus"][-1])
-    batch = Q["ws"][r] + np.where(tau == chot, (chot // RT_STEP_S + 1) * RT_STEP_S, tau)
+    batch = Q["ws"][r] + tau
+    batch = np.where(tau == chot, np.ceil(batch / RT_STEP_S) * RT_STEP_S, batch)       # lần chốt: nhịp đọc đầu tiên sau đó
     return chinh_sach(Q["cap"][r], Q["ws"][r], batch, muc_do(Q["s"][ix], thr), Q["k"][ix], RT_QUIET_S[Q["huong"]])
 
 
@@ -438,8 +450,7 @@ def tre_gio_that(lat, t_dau, doi):
     return pd.Series(doi(lat.to_numpy() + t) - t, index=lat.index)
 
 
-HV_THU_TU = ["scan_mgmt", "auth_mgmt", "scan_in", "flood_in", "web_in", "exfil", "download", "beacon_even",
-             "beacon_irregular"]
+HV_THU_TU = ["scan_mgmt", "auth_mgmt", "scan_in", "flood_in", "web_in", "exfil", "download"]
 
 
 def bang_do_tre(cot, runs, n_bao):

@@ -185,7 +185,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
         return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
 
     # ---- engine chấm sớm ----
-    # Mỗi chiều một tham chiếu với độ dài cửa sổ riêng (chiều vào 2 phút, chiều ra 30 phút). Mỗi lượt đọc chấm lại các cửa sổ
+    # Mỗi chiều một tham chiếu, độ dài cửa sổ ghi trong joblib (30 giây cho cả hai chiều). Mỗi lượt đọc chấm lại các cửa sổ
     # chưa chốt vừa có thêm luồng và báo ngay khi vượt ngưỡng; cửa sổ chốt khi đồng hồ qua cuối cửa sổ cộng delay_s. Tham số
     # và tham chiếu ở khóa "rt" của joblib; thiếu khóa này thì Behavior-IF tắt.
     def _load_rt():
@@ -215,6 +215,11 @@ def _build_behavior(model_path="net_if_model.joblib"):
             return "flood"
         return ""
 
+    def _dai(giay):
+        """Độ dài cửa sổ để hiển thị: theo phút khi tròn phút, còn lại theo giây."""
+        giay = int(giay)
+        return f"{giay // 60}'" if giay % 60 == 0 else f"{giay} giây"
+
     def _emit_rt(key, x, sc, m, thr, W, extra=None, reasons=None):
         src, dst, other, n, off, b, top = key[:7]
         zs = zone(src)
@@ -226,7 +231,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
                "n_ports": int(round(math.expm1(float(x[I_N_PORTS])))),
                "dports": ",".join(str(p) for p in key[8]) if len(key) > 8 else "",
                "zone_other": zone(other), "frac_out": round(float(x[I_FRAC_OUT]), 3),
-               "window_start": _iso(b * W + off), "location": f"cửa sổ {W // 60}'",
+               "window_start": _iso(b * W + off), "location": f"cửa sổ {_dai(W)}",
                "score": float(sc), "thr": thr,
                **({"behavior": beh} if beh else {}),
                "reasons": reasons if reasons is not None else explain(x, m["med"], m["scale"], FEATS), **(extra or {})})
@@ -280,7 +285,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
     def _tham_so(m, rt, score_q=None):
         """Tham số cửa sổ của một tham chiếu; joblib cũ ghi chung ở khóa "rt". ANOMALY_RT_QUIET_MIN đổi thời gian yên lặng của
         sự cố khi triển khai (phút). Thời gian yên lặng không nhỏ hơn bước trượt: hai cửa sổ chồng nhau cùng chứa một hành
-        vi phải thuộc một sự cố, nếu không chiều ra (bước 15 phút) sẽ báo hai lần cho cùng một hành vi."""
+        vi phải thuộc một sự cố, nếu không engine sẽ báo hai lần cho cùng một hành vi."""
         ov = os.environ.get("ANOMALY_RT_QUIET_MIN")
         W = int(m.get("window_min", rt.get("window_min", 2)) * 60)
         H = int(m.get("window_hop_min", rt.get("window_hop_min", 1)) * 60)
@@ -392,14 +397,14 @@ def _build_behavior(model_path="net_if_model.joblib"):
                     n += 1
                     _emit_rt(kk, X[i], float(diem[i]), m, c.thr, c.W, {"episode": e["id"], "episode_state": state,
                              "episode_start": _iso(e["start"]), "episode_windows": e["n"]}, reasons)
-            print(f"[BEHAVIOR-IF] chiều {'ra' if d == 'out' else 'vào'}: {len(keys)} cửa sổ {c.W // 60}', {len(gan_co)} vượt ngưỡng "
+            print(f"[BEHAVIOR-IF] chiều {'ra' if d == 'out' else 'vào'}: {len(keys)} cửa sổ {_dai(c.W)}, {len(gan_co)} vượt ngưỡng "
                   f"({c.thr:.4f}), {n} cảnh báo sau khi gom sự cố")
 
     _END = re.compile(r'"end"\s*:\s*"([^"]+)"')
 
     def khoi_dong_am(s, path, buoc=10.0, giu_s=7200.0):
-        """Đọc lại phần cuối eve.json để dựng lại các cửa sổ và sự cố đang mở (cửa sổ chiều ra dài 30 phút; không đọc lại thì
-        sau mỗi lần khởi động chiều ra phải chờ tới mốc 15 phút kế tiếp mới có cửa sổ trọn vẹn). Hai giờ gần nhất của nhật ký
+        """Đọc lại phần cuối eve.json để dựng lại các cửa sổ và sự cố đang mở (không đọc lại thì sự cố
+        đang mở trước lúc khởi động bị quên và được báo lại như sự cố mới). Hai giờ gần nhất của nhật ký
         được phát lại theo từng bước đồng hồ như khi chạy, nên trạng thái sự cố giống một engine chạy liên tục; phần đọc lại
         không phát cảnh báo. ANOMALY_WARM_MB đổi dung lượng đọc lại (mặc định 64 MB, 0 là tắt). Trả vị trí đọc tiếp."""
         mb = float(os.environ.get("ANOMALY_WARM_MB") or 64)
@@ -441,7 +446,7 @@ def _build_behavior(model_path="net_if_model.joblib"):
         # ANOMALY_RT_INTERVAL_S đổi chu kỳ đọc và chấm lại khi triển khai (mặc định theo joblib, 10 giây).
         iv = interval or int(os.environ.get("ANOMALY_RT_INTERVAL_S") or rt.get("interval_s", 10))
         for d, c in s.C.items():
-            print(f"[BEHAVIOR-IF live] chiều {'ra' if d == 'out' else 'vào'}: cửa sổ {c.W // 60}', trượt {c.H // 60}', chốt sau "
+            print(f"[BEHAVIOR-IF live] chiều {'ra' if d == 'out' else 'vào'}: cửa sổ {_dai(c.W)}, trượt {_dai(c.H)}, chốt sau "
                   f"{c.D:.0f}s | ngưỡng {c.thr:.4f} | gom sự cố {int(c.quiet) // 60}'"
                   + (" | chấm tiếp cửa sổ đã vượt ngưỡng" if c.rescore else ""), flush=True)
         print(f"[BEHAVIOR-IF live] chấm lại mỗi {iv}s", flush=True)

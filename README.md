@@ -7,7 +7,7 @@ Mã nguồn khóa luận tốt nghiệp **"Nghiên cứu ứng dụng thuật to
 
 Đề tài xây dựng nhánh phát hiện bất thường chạy song song với nhánh chữ ký của Suricata, gồm hai mô-đun Isolation Forest học không giám sát trên nhật ký `eve.json`:
 
-- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian. Mô-đun có hai tham chiếu bình thường theo bên khởi tạo kết nối. Chiều ra (máy nạn nhân khởi tạo) dùng cửa sổ 30 phút và 9 đặc trưng, phát hiện cả hành vi dồn dập như dò quét, dò đăng nhập lẫn hành vi kéo dài như kênh C2, tải công cụ, exfiltration. Chiều vào (bên ngoài khởi tạo) dùng cửa sổ 2 phút và 5 đặc trưng cho dò quét, dò đăng nhập, làm ngập. Cửa sổ được chấm lại khi còn mở nên hành vi dồn dập được báo sớm. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của chiều đó chỉ ghi kèm cảnh báo để diễn giải.
+- **Behavior-IF**: bản ghi `flow`, đơn vị phân tích là cặp máy trong một cửa sổ thời gian. Mô-đun theo dõi hành vi lộ ra trong thời gian ngắn và có hai tham chiếu bình thường theo bên khởi tạo kết nối, cùng dùng cửa sổ 30 giây, bước trượt 15 giây. Chiều ra (máy nạn nhân khởi tạo) dùng 7 đặc trưng cho dò quét, dò đăng nhập sang vùng quản trị, exfiltration và tải công cụ. Chiều vào (bên ngoài khởi tạo) dùng 5 đặc trưng cho dò quét, dò đăng nhập, làm ngập. Cửa sổ được chấm lại khi còn mở nên cảnh báo đến sớm, và hai hành vi nối tiếp nhau của cùng một cặp máy rơi vào hai cửa sổ khác nhau nên có cảnh báo riêng. Hành vi phải theo dõi bằng cửa sổ dài, như kết nối lặp lại theo chu kỳ tới máy chủ C2, nằm ngoài phạm vi. Mỗi cửa sổ được tính đủ 11 đại lượng; đại lượng không đưa vào rừng của chiều đó chỉ ghi kèm cảnh báo để diễn giải.
 - **Web-App IF**: bản ghi `http` và thân POST, đơn vị phân tích là giá trị tham số; gồm Web-Query IF (tham số truy vấn, trường ngắn) và Web-Body IF (văn bản tự do của thân POST). Mô-đun nhắm vào bốn loại tấn công: SQL Injection, XSS, command injection và path traversal, trọng tâm là SQL Injection và XSS. Rừng chấm trên 11 đặc trưng từ vựng, riêng Web-Query IF thêm `n_slash` (số dấu gạch chéo); ký tự `<`, `>` và chuỗi percent-encoding còn sót sau khi giải mã được tách sang bước kiểm tra miền của giá trị ngắn.
 
 Cảnh báo được đẩy vào Wazuh, phân mức theo bộ rule riêng, gửi Telegram và chặn nguồn qua Active Response tại Suricata_IPS.
@@ -50,14 +50,14 @@ Score(x, F)
 
 | Mô hình | Mẫu đưa vào rừng | Số đặc trưng | Mẫu con |
 |---|---|---|---|
-| Behavior-IF, chiều ra | Cặp máy trong cửa sổ 30 phút | 9 | 65.536 |
-| Behavior-IF, chiều vào | Cặp máy trong cửa sổ 2 phút | 5 | 1.024 |
+| Behavior-IF, chiều ra | Cặp máy trong cửa sổ 30 giây | 7 | 65.536 |
+| Behavior-IF, chiều vào | Cặp máy trong cửa sổ 30 giây | 5 | 1.024 |
 | Web-Query IF | Giá trị tham số truy vấn, trường ngắn của thân POST | 12 | 1.024 |
 | Web-Body IF | Văn bản tự do của thân POST | 11 | 1.024 |
 
-Cả bốn rừng dùng 300 cây và seed cố định. Mẫu con là 1.024, riêng rừng chiều ra của Behavior-IF dùng 65.536 vì ngưỡng của nó nằm ở phân vị 99,98% của điểm huấn luyện: mẫu con 1.024 trung bình chỉ chứa 0,2 mẫu nằm ngoài phân vị này, còn mẫu con 65.536 chứa khoảng 13 mẫu. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (chiều ra của Behavior-IF có 950.668 cửa sổ huấn luyện), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
+Cả bốn rừng dùng 300 cây và seed cố định. Mẫu con là 1.024, riêng rừng chiều ra của Behavior-IF dùng 65.536 vì ngưỡng của nó nằm ở phân vị 99,8% của điểm huấn luyện: mẫu con 1.024 trung bình chỉ chứa khoảng 2 mẫu nằm ngoài phân vị này, còn mẫu con 65.536 chứa khoảng 131 mẫu. Nhờ mẫu con, chi phí huấn luyện không tăng theo kích thước dữ liệu (chiều ra của Behavior-IF có 1.291.533 cửa sổ huấn luyện), còn chi phí chấm mỗi mẫu chỉ phụ thuộc số cây và độ sâu cây, đủ nhanh để chấm trực tuyến luồng sự kiện của Suricata. Hai tính chất này, cùng việc không giả định phân phối cho các đặc trưng có phân bố lệch, là lý do đề tài chọn Isolation Forest thay cho Mahalanobis, One-Class SVM hay LOF (Bảng 2.5 của báo cáo).
 
-Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có không quá một cảnh báo nhầm mỗi giờ ở mỗi chiều với Behavior-IF, có FPR kiểm định không quá 0,2% với hai mô hình web. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
+Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của mỗi mô hình là phân vị (1 − SCORE_Q) của điểm trên tập huấn luyện. SCORE_Q được chọn trên tập kiểm định trước khi chấm tập kiểm thử: nấc lớn nhất có không quá ba cảnh báo nhầm mỗi giờ ở mỗi chiều với Behavior-IF, có FPR kiểm định không quá 0,2% với hai mô hình web. Rừng cũng không cho biết đặc trưng nào gây bất thường, nên mỗi cảnh báo kèm tối đa ba đặc trưng lệch nhiều nhất theo z bền vững, z = (x − median)/(1,4826 × MAD) tính trên tập huấn luyện. Lớp diễn giải này không tham gia tính điểm hay đặt ngưỡng.
 
 ### Bản tự cài và bản scikit-learn
 
@@ -65,12 +65,12 @@ Isolation Forest chỉ xếp hạng mức bất thường, nên ngưỡng của 
 
 | Mô hình | Dữ liệu so | Spearman giữa hai bản |
 |---|---|---|
-| Behavior-IF, chiều ra | 5.000 cửa sổ kiểm định | 0,9861 |
-| Behavior-IF, chiều vào | 5.000 cửa sổ kiểm định | 0,9013 |
+| Behavior-IF, chiều ra | 5.000 cửa sổ kiểm định | 0,9961 |
+| Behavior-IF, chiều vào | 5.000 cửa sổ kiểm định | 0,8731 |
 | Web-Query IF | 30.668 đơn vị kiểm định | 0,9770 |
 | Web-Body IF | 15.053 giá trị kiểm định | 0,9896 |
 
-Hai bản cho cùng quyết định trên cả 917 cửa sổ tấn công chiều ra, 99,22% trong 129 cửa sổ tấn công chiều vào, 99,75% request GET và 99,37% request POST (Bảng 3.9 của báo cáo). `anomaly.py` cũng được kiểm tra bằng cách đưa dữ liệu kiểm thử qua đúng đường xử lý của nó. Với Web-App IF, quyết định trùng với bản scikit-learn của notebook trên cả 39.217 request GET và 28.207 request POST. Với Behavior-IF, hai lát 28 giờ của tập kiểm thử được phát lại qua engine: engine phát 121 cảnh báo ở lát chiều ra và 11 ở lát chiều vào, trùng với cách đếm của notebook.
+Hai bản cho cùng quyết định trên cả 3.616 cửa sổ tấn công chiều ra, 98,93% trong 375 cửa sổ tấn công chiều vào, 99,75% request GET và 99,37% request POST (Bảng 3.9 của báo cáo). `anomaly.py` cũng được kiểm tra bằng cách đưa dữ liệu kiểm thử qua đúng đường xử lý của nó. Với Web-App IF, quyết định trùng với bản scikit-learn của notebook trên cả 39.217 request GET và 28.207 request POST. Với Behavior-IF, hai lát 28 giờ của tập kiểm thử được phát lại qua engine: engine phát 121 cảnh báo ở lát chiều ra và 16 ở lát chiều vào, trùng với cách đếm của notebook.
 
 ## Chạy lại
 
@@ -103,13 +103,9 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Cơ chế chấm
 
-![Cửa sổ trượt 30 phút, bước 15 phút của chiều ra](docs/cua_so_truot_chieu_ra.png)
+![Cửa sổ trượt 30 giây, bước 15 giây](docs/cua_so_truot.png)
 
-*Behavior-IF, chiều ra: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng. Cửa sổ chốt 75 giây sau thời điểm cuối.*
-
-![Cửa sổ trượt 2 phút, bước 1 phút của chiều vào](docs/cua_so_truot_chieu_vao.png)
-
-*Behavior-IF, chiều vào: cùng cách chấm, cửa sổ 2 phút.*
+*Behavior-IF, cả hai chiều: chấm lại mỗi 10 giây khi cửa sổ còn mở, báo ngay ở lần đầu điểm vượt ngưỡng. Cửa sổ chốt 75 giây sau thời điểm cuối.*
 
 ![Trường đọc và mô hình chấm của Web-App IF](docs/web_app_if_co_che.png)
 
@@ -117,18 +113,18 @@ Ba vùng trên EVE-NG: vùng tấn công, vùng nạn nhân (VLAN 10) và vùng 
 
 ## Kết quả trên tập kiểm thử
 
-Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Behavior-IF theo số cảnh báo nhầm không quá một mỗi giờ ở mỗi chiều, hai mô hình web theo FPR không vượt 0,2%. Tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
+Mô hình chỉ học trên dữ liệu hợp lệ do đề tài tạo. Ngưỡng được chọn trên tập kiểm định: Behavior-IF theo số cảnh báo nhầm không quá ba mỗi giờ ở mỗi chiều, hai mô hình web theo FPR không vượt 0,2%. Tập kiểm thử chỉ dùng để chấm tại ngưỡng đó.
 
 ### Behavior-IF
 
 | Chỉ số | Chiều ra | Chiều vào |
 |---|---|---|
-| Cảnh báo nhầm mỗi giờ, kiểm định / kiểm thử | 0,46 / 0,27 | 0 / 0 |
-| Cửa sổ bình thường bị gắn cờ trên tập kiểm thử | 180 / 419.842 (0,043%) | 0 / 7.158 |
-| Lượt, phiên tấn công được phát hiện | 516 / 516 | 16 / 16 |
-| Cửa sổ tấn công được phát hiện | 1.228 / 1.262 | 117 / 129 |
+| Cảnh báo nhầm mỗi giờ, kiểm định / kiểm thử | 2,93 / 1,99 | 0 / 0 |
+| Cửa sổ bình thường bị gắn cờ trên tập kiểm thử | 2.000 / 575.145 (0,348%) | 0 / 17.507 |
+| Lượt, phiên tấn công được phát hiện | 413 / 413 | 16 / 16 |
+| Cửa sổ tấn công được phát hiện | 3.616 / 3.616 | 351 / 375 |
 
-Behavior-IF phát hiện 532 trong 532 lượt và phiên tấn công của tập kiểm thử, recall theo cửa sổ 96,69%. Nhờ chấm khi cửa sổ còn mở, trung vị độ trễ của nhóm hành vi dồn dập (dò quét, dò đăng nhập, làm ngập, gửi payload web) là 6 đến 100 giây, so với 156 đến 625 giây nếu chỉ chấm lúc cửa sổ đóng. Bốn hành vi kéo dài (exfiltration, tải công cụ, hai dạng kênh C2) được báo sau trung vị 112 đến 218 giây (Bảng 3.5 của báo cáo). Độ trễ tính theo giờ thật từ luồng đầu tiên của lượt, phần lớn là thời gian chờ Suricata ghi bản ghi flow. Bộ đặc trưng, độ dài cửa sổ và kích thước mẫu con của chiều ra được chọn trên 317 lượt của tập kiểm thử, nên số liệu trên các lượt này có thể lạc quan hơn thực tế. Cả 199 lượt không dùng khi chọn đều được phát hiện.
+Behavior-IF phát hiện 429 trong 429 lượt và phiên tấn công của tập kiểm thử, recall theo cửa sổ 99,40%. Nhờ chấm khi cửa sổ còn mở, trung vị độ trễ của các hành vi là 6 đến 114 giây, so với 141 đến 494 giây nếu chỉ chấm lúc cửa sổ đóng (Bảng 3.5 của báo cáo). Độ trễ tính theo giờ thật từ luồng đầu tiên của lượt, phần lớn là thời gian chờ Suricata ghi bản ghi flow. FPR theo cửa sổ của chiều ra là 0,348%, cao hơn mức 0,2% đặt cho hai mô hình web. Bộ đặc trưng, độ dài cửa sổ và kích thước mẫu con được chốt sau khi đã xem kết quả trên tập kiểm thử, nên số liệu trên tập này có thể lạc quan hơn thực tế.
 
 ![Recall của Behavior-IF theo hành vi](docs/behavior_if_recall.png)
 
@@ -186,17 +182,17 @@ Trên hệ thống thực nghiệm, chuỗi xử lý cảnh báo đã chạy th�
 
 | Kịch bản | Mô hình gắn cờ | Điểm | Rule Wazuh | Chặn nguồn |
 |---|---|---|---|---|
-| Dò quét cổng và dịch vụ, từ ngoài vào | Behavior-IF, chiều vào | 0,691 | 100308 (mức 12) | Không |
-| Brute-force SSH | Behavior-IF, chiều vào, nhãn brute | 0,686 | 100309 (mức 12) | Có |
-| Làm ngập dịch vụ | Behavior-IF, chiều vào, nhãn flood | 0,748 | 100309 (mức 12) | Có |
-| Dò quét vùng quản trị, từ máy nạn nhân | Behavior-IF, chiều ra | 0,805 | 100308 (mức 12) | Không |
+| Dò quét cổng và dịch vụ, từ ngoài vào | Behavior-IF, chiều vào | 0,768 | 100308 (mức 12) | Không |
+| Brute-force SSH | Behavior-IF, chiều vào, nhãn brute | 0,668 | 100309 (mức 12) | Có |
+| Làm ngập dịch vụ | Behavior-IF, chiều vào, nhãn flood | 0,727 | 100309 (mức 12) | Rule chặn được thêm rồi gỡ sau 15 giây |
+| Dò quét vùng quản trị, từ máy nạn nhân | Behavior-IF, chiều ra | 0,759 | 100308 (mức 12) | Không |
 | SQL Injection | Web-Query IF | 0,772 | 100305 (mức 12) | Không |
 | XSS lưu trữ | Web-Body IF | 0,713 | 100305 (mức 12) | Không |
 | XSS phản chiếu | Web-Query IF, kiểm tra miền | 1,000 | 100305 (mức 12) | Không |
 | Command injection | Web-Query IF | 0,670 | 100306 (mức 10) | Không |
 | Path traversal | Web-Query IF | 0,725 | 100305 (mức 12) | Không |
 
-Các lượt Behavior-IF có số đo được báo sau 7 đến 38 giây kể từ luồng đầu tiên của cửa sổ. Mỗi lượt web bị gắn cờ ngay từ một request. Chuỗi tấn công web liên tục đạt điều kiện của rule 100312 và bị chặn bốn lần. Lượt dò quét vùng quản trị và các lượt Web-Query IF trong bảng chạy với mô hình trước ngày 19/11/2026 (chiều ra cửa sổ 2 phút, Web-Query IF 11 đặc trưng) và sẽ được chạy lại với mô hình hiện tại. Ba lượt chiều vào và lượt Web-Body IF dùng rừng và ngưỡng không đổi. Các kịch bản giao tiếp chiều ra định kỳ, exfiltration và khai thác lỗ hổng sẽ bổ sung khi chạy xong.
+Bốn lượt Behavior-IF trong bảng chạy ngày 20/11/2026 với mô hình cửa sổ 30 giây và được báo sau 5 đến 25 giây kể từ luồng đầu tiên của cửa sổ; lượt dò đăng nhập chạy ngay sau lượt dò quét từ cùng nguồn vẫn có cảnh báo riêng. Lượt dò quét vùng quản trị chạy khi ngưỡng chiều ra còn là 0,6975. Mỗi lượt web bị gắn cờ ngay từ một request. Chuỗi tấn công web liên tục đạt điều kiện của rule 100312 và bị chặn bốn lần. Các lượt Web-Query IF trong bảng chạy với mô hình trước ngày 19/11/2026 (Web-Query IF 11 đặc trưng) và sẽ được chạy lại với mô hình hiện tại; lượt Web-Body IF dùng rừng và ngưỡng không đổi. Các kịch bản exfiltration và khai thác lỗ hổng sẽ bổ sung khi chạy xong.
 
 ## Cấu trúc kho
 

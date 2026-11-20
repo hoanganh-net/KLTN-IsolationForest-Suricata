@@ -1,8 +1,8 @@
 """anomaly.py: runtime phát hiện bất thường trên nhật ký eve.json của Suricata.
 
 Nạp các mô hình Isolation Forest (scikit-learn) do hai notebook xuất ra và chấm trực tiếp trên eve.json:
-    net_if_model.joblib        Behavior-IF trên bản ghi flow: mỗi chiều một tham chiếu (khóa "rt": chiều ra "out" cửa sổ
-                               30 phút, chiều vào "inbound" cửa sổ 2 phút), cửa sổ được chấm lại cả khi còn mở
+    net_if_model.joblib        Behavior-IF trên bản ghi flow: mỗi chiều một tham chiếu (khóa "rt": chiều ra "out", chiều vào
+                               "inbound"), cùng cửa sổ 30 giây, cửa sổ được chấm lại cả khi còn mở
     web_app_if_model.joblib    Web-App IF trên bản ghi http: "query" (Web-Query) và "body" (Web-Body)
 
 Dùng:

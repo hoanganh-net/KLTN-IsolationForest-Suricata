@@ -56,11 +56,13 @@ def _perf_write(rec):
 def _proc_cpu_rss():
     """CPU giây tích lũy (utime+stime) và RSS (MB) của chính tiến trình, đọc từ /proc; (None, None) nếu không đọc được."""
     try:
-        f = open("/proc/self/stat").read().split()
+        with open("/proc/self/stat") as fh:
+            f = fh.read().split()
         cpu_s = (int(f[13]) + int(f[14])) / os.sysconf("SC_CLK_TCK")
         rss_mb = None
-        for l in open("/proc/self/status"):
-            if l.startswith("VmRSS"): rss_mb = int(l.split()[1]) // 1024; break
+        with open("/proc/self/status") as fh:
+            for l in fh:
+                if l.startswith("VmRSS"): rss_mb = int(l.split()[1]) // 1024; break
         return cpu_s, rss_mb
     except Exception:
         return None, None
